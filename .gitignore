@@ -1,0 +1,6 @@
+/.pytest_cache
+/.venv
+/dist
+/logs
+/output
+/webapp_data

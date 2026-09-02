@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>NetsingTool - ログイン</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="login-box">
+  <h1>NetsingTool</h1>
+  <form id="login-form">
+    <label>ユーザー名<input type="text" id="username" autocomplete="username" required></label>
+    <label>パスワード<input type="password" id="password" autocomplete="current-password" required></label>
+    <button type="submit">ログイン</button>
+    <p id="login-error" class="error"></p>
+  </form>
+</div>
+<script>
+document.getElementById("login-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const username = document.getElementById("username").value;
+  const password = document.getElementById("password").value;
+  const res = await fetch("/auth/login", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    credentials: "same-origin",
+    body: JSON.stringify({username, password}),
+  });
+  if (res.ok) {
+    window.location.href = "/";
+  } else {
+    const data = await res.json().catch(() => ({}));
+    document.getElementById("login-error").textContent = data.detail || "ログインに失敗しました";
+  }
+});
+</script>
+</body>
+</html>
