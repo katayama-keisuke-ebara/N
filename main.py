@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from src.log_setup import setup_logging
@@ -50,4 +51,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    _exit_code = main()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    # cadquery/OCP はインタプリタ終了時にネイティブ側で異常終了する既知の不具合があるため、
+    # 通常のPython終了処理(atexit/静的破棄)を経由せず os._exit で即時終了する。
+    os._exit(_exit_code)

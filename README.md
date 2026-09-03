@@ -138,6 +138,9 @@ C:\tools\nssm\nssm.exe install NetsingToolWeb "D:\NetsingTool\.venv\Scripts\pyth
 # 作業ディレクトリ (相対パス解決・webapp_data 配置先の基準) を指定
 C:\tools\nssm\nssm.exe set NetsingToolWeb AppDirectory "D:\NetsingTool"
 
+# IIS の /nesting/ サブパス配下で公開する場合(手順8参照)は、外部プレフィックスを環境変数で渡す
+C:\tools\nssm\nssm.exe set NetsingToolWeb AppEnvironmentExtra "NESTING_ROOT_PATH=/nesting"
+
 # 標準出力・エラー出力をログファイルへ
 C:\tools\nssm\nssm.exe set NetsingToolWeb AppStdout "D:\NetsingTool\logs\service_stdout.log"
 C:\tools\nssm\nssm.exe set NetsingToolWeb AppStderr "D:\NetsingTool\logs\service_stderr.log"
@@ -206,6 +209,14 @@ IIS を前段に置きリバースプロキシします。
 この構成の場合、手順 6 の NSSM 登録時は `--host 127.0.0.1`(外部非公開)にし、IIS 側の 443 のみを
 手順 7 のファイアウォールで開放してください。
 
+> **`/nesting/` のようなサブパス配下で公開する場合**: 上記の `web.config` の `match url` を
+> `^nesting/(.*)` 、`action` の `url` を `http://127.0.0.1:8000/{R:1}` のように書き換えてパスの
+> プレフィックスを剥がして転送する。あわせて `webapp` 側にも外部から見えるプレフィックスを
+> 教える必要があるため、環境変数 `NESTING_ROOT_PATH=/nesting` を設定してからサーバーを起動する
+> (`start_server.bat` は未設定時に自動で `/nesting` を既定値にする。NSSM の場合は上記手順6の
+> `AppEnvironmentExtra` で設定し、`nssm restart NetsingToolWeb` で反映する)。この設定が漏れると
+> HTML 本体は表示されるが `style.css`/`app.js` などの静的ファイルが 404 になる。
+
 ### 9. アップデート手順
 
 ```powershell
@@ -223,7 +234,7 @@ nssm start NetsingToolWeb
 - ログ: アプリログは `logs\`、サービスの標準出力/エラーは手順 6 で設定した `logs\service_std*.log` を確認する。
 - ジョブ実行の並列数: `webapp/jobs.py` の `MAX_WORKERS`(既定 2)。サーバースペックに応じて調整可能。
 - 障害時: `nssm restart NetsingToolWeb` でプロセスプールごと再起動すれば、cadquery/OCP のネイティブクラッシュ
-  (repo memory 記載の既知事象)からも復旧できる。
+  (詳細は [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) を参照)からも復旧できる。
 
 ---
 
@@ -260,6 +271,16 @@ NetsingTool/
 ```cmd
 pytest
 pytest --cov=src --cov=webapp  # カバレッジ付き
+```
+
+cadquery/OCP は正常終了時にもネイティブ側の後始末でクラッシュする既知の不具合があり、
+全テスト成功後でも exit code が異常値になることがあります(詳細は
+[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) を参照)。CI 等で exit code を判定に使う場合は、
+同じ引数を渡せる `run_tests.py` 経由で実行してください(exit code が正しく 0/1 になります)。
+
+```cmd
+python run_tests.py -q
+python run_tests.py -q --cov=src --cov=webapp
 ```
 
 ---

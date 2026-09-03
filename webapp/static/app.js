@@ -12,7 +12,7 @@ async function apiFetch(url, options = {}) {
   }
   const res = await fetch(url, opts);
   if (res.status === 401) {
-    window.location.href = "/login";
+    window.location.href = "login";
     throw new Error("unauthorized");
   }
   return res;
@@ -25,13 +25,13 @@ let currentCandidates = [];
 let currentCandidateIndex = 0;
 
 async function init() {
-  const me = await apiFetch("/auth/me");
+  const me = await apiFetch("auth/me");
   if (me.ok) {
     const data = await me.json();
     document.getElementById("username-label").textContent = data.username;
   }
 
-  const configRes = await apiFetch("/api/config");
+  const configRes = await apiFetch("api/config");
   if (configRes.ok) {
     const config = await configRes.json();
     document.getElementById("sheet_w").value = config.sheet_w;
@@ -87,7 +87,7 @@ async function onRun() {
   try {
     const formData = new FormData();
     selectedFiles.forEach((f) => formData.append("files", f));
-    const uploadRes = await apiFetch("/api/uploads", {method: "POST", body: formData});
+    const uploadRes = await apiFetch("api/uploads", {method: "POST", body: formData});
     if (!uploadRes.ok) {
       const data = await uploadRes.json().catch(() => ({}));
       throw new Error(data.detail || "アップロードに失敗しました");
@@ -100,7 +100,7 @@ async function onRun() {
       return {upload_id: u.upload_id, quantity: Number.isNaN(parsed) ? 1 : parsed};
     });
 
-    const jobRes = await apiFetch("/api/jobs", {
+    const jobRes = await apiFetch("api/jobs", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({parts, sheet_w, sheet_h, thickness, clearance}),
@@ -112,7 +112,7 @@ async function onRun() {
     const jobData = await jobRes.json();
     currentJobId = jobData.job_id;
 
-    await apiFetch("/api/config", {
+    await apiFetch("api/config", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({parts: [], sheet_w, sheet_h, thickness, clearance}),
@@ -129,7 +129,7 @@ async function onRun() {
 async function pollJob() {
   const statusText = document.getElementById("status-text");
   const errorText = document.getElementById("error-text");
-  const res = await apiFetch(`/api/jobs/${currentJobId}`);
+  const res = await apiFetch(`api/jobs/${currentJobId}`);
   const data = await res.json();
   statusText.textContent = data.progress || data.status;
 
@@ -145,7 +145,7 @@ async function pollJob() {
 }
 
 async function loadResults() {
-  const res = await apiFetch(`/api/jobs/${currentJobId}/candidates`);
+  const res = await apiFetch(`api/jobs/${currentJobId}/candidates`);
   const data = await res.json();
   currentResults = data.results;
   currentCandidates = data.candidates;
@@ -175,7 +175,7 @@ function renderTabs() {
 function renderCandidate() {
   const candidate = currentCandidates[currentCandidateIndex];
   document.getElementById("nesting-image").src =
-    `/api/jobs/${currentJobId}/render?candidate=${currentCandidateIndex}&t=${Date.now()}`;
+    `api/jobs/${currentJobId}/render?candidate=${currentCandidateIndex}&t=${Date.now()}`;
 
   const tbody = document.querySelector("#breakdown-table tbody");
   tbody.innerHTML = "";
@@ -191,12 +191,12 @@ function renderCandidate() {
 }
 
 async function onDownloadZip() {
-  window.location.href = `/api/jobs/${currentJobId}/download/zip`;
+  window.location.href = `api/jobs/${currentJobId}/download/zip`;
 }
 
 async function onLogout() {
-  await apiFetch("/auth/logout", {method: "POST"});
-  window.location.href = "/login";
+  await apiFetch("auth/logout", {method: "POST"});
+  window.location.href = "login";
 }
 
 init();

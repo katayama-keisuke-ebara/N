@@ -1,13 +1,13 @@
 @echo off
-REM Žè“®‚ÅWebƒT[ƒo[‚ð‹N“®‚·‚éƒoƒbƒ`Bƒoƒbƒ`Ž©‘Ì‚Í’ÊíŠÂ‹«‚ÅŽÀs‚·‚é‚ªA
-REM ƒT[ƒo[–{‘Ì‚Í .venv ‚ÌPython‚ð’¼ÚŽw’è‚µ‚Ä‰¼‘zŠÂ‹«‚Å‹N“®‚·‚éB
+REM ï¿½è“®ï¿½ï¿½Webï¿½Tï¿½[ï¿½oï¿½[ï¿½ï¿½ï¿½Nï¿½ï¿½ï¿½ï¿½ï¿½ï¿½oï¿½bï¿½`ï¿½Bï¿½oï¿½bï¿½`ï¿½ï¿½ï¿½Ì‚Í’Êï¿½Â‹ï¿½ï¿½ÅŽï¿½ï¿½sï¿½ï¿½ï¿½é‚ªï¿½A
+REM ï¿½Tï¿½[ï¿½oï¿½[ï¿½{ï¿½Ì‚ï¿½ .venv ï¿½ï¿½Pythonï¿½ð’¼ÚŽwï¿½è‚µï¿½Ä‰ï¿½ï¿½zï¿½Â‹ï¿½ï¿½Å‹Nï¿½ï¿½ï¿½ï¿½ï¿½ï¿½B
 setlocal
 cd /d "%~dp0"
 
 set VENV_PYTHON=.venv\Scripts\python.exe
 
 if not exist "%VENV_PYTHON%" (
-    echo [ERROR] .venv ‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñBˆÈ‰º‚ÌƒRƒ}ƒ“ƒh‚Å‰¼‘zŠÂ‹«‚ðì¬‚µ‚Ä‚­‚¾‚³‚¢B
+    echo [ERROR] .venv ï¿½ï¿½ï¿½ï¿½ï¿½Â‚ï¿½ï¿½ï¿½Ü‚ï¿½ï¿½ï¿½Bï¿½È‰ï¿½ï¿½ÌƒRï¿½}ï¿½ï¿½ï¿½hï¿½Å‰ï¿½ï¿½zï¿½Â‹ï¿½ï¿½ï¿½ï¿½ì¬ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½B
     echo   python -m venv .venv
     echo   .venv\Scripts\pip.exe install -r requirements.txt
     pause
@@ -16,16 +16,22 @@ if not exist "%VENV_PYTHON%" (
 
 if not exist logs mkdir logs
 
-REM ƒƒOƒtƒ@ƒCƒ‹–¼‚Éƒ^ƒCƒ€ƒXƒ^ƒ“ƒv‚ð•t—^‚·‚é‚½‚ßPowerShell‚ÅƒtƒH[ƒ}ƒbƒg‚·‚é
+REM Default NESTING_ROOT_PATH to /nesting for the IIS reverse-proxy path rewrite
+REM (https://xxx.com/nesting/ -> http://127.0.0.1:8090/), unless already set by the caller.
+REM For direct local/no-proxy access, run "set NESTING_ROOT_PATH=" before this script.
+if not defined NESTING_ROOT_PATH set NESTING_ROOT_PATH=/nesting
+
+REM ï¿½ï¿½ï¿½Oï¿½tï¿½@ï¿½Cï¿½ï¿½ï¿½ï¿½ï¿½Éƒ^ï¿½Cï¿½ï¿½ï¿½Xï¿½^ï¿½ï¿½ï¿½vï¿½ï¿½tï¿½^ï¿½ï¿½ï¿½é‚½ï¿½ï¿½PowerShellï¿½Åƒtï¿½Hï¿½[ï¿½}ï¿½bï¿½gï¿½ï¿½ï¿½ï¿½
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set TS=%%i
 set LOGFILE=logs\server_%TS%.log
 
 echo Starting NetsingTool server (host=0.0.0.0 port=8090)
+echo NESTING_ROOT_PATH=%NESTING_ROOT_PATH%
 echo Log file: %LOGFILE%
 echo Press Ctrl+C to stop.
 echo.
 
-REM cmd‚É‚Ítee‘Š“–‚ª–³‚¢‚½‚ßAƒRƒ“ƒ\[ƒ‹•\Ž¦‚Æƒtƒ@ƒCƒ‹o—Í‚Ì—¼—§‚ÉPowerShell‚ÌTee-Object‚ðŽg‚¤
+REM cmdï¿½É‚ï¿½teeï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ßAï¿½Rï¿½ï¿½ï¿½\ï¿½[ï¿½ï¿½ï¿½\ï¿½ï¿½ï¿½Æƒtï¿½@ï¿½Cï¿½ï¿½ï¿½oï¿½Ì—Í‚ï¿½ï¿½ï¿½ï¿½ï¿½PowerShellï¿½ï¿½Tee-Objectï¿½ï¿½ï¿½gï¿½ï¿½
 "%VENV_PYTHON%" -m uvicorn webapp.main:app --host 0.0.0.0 --port 8090 2>&1 | powershell -NoProfile -Command "$input | ForEach-Object { $_.ToString() } | Tee-Object -FilePath '%LOGFILE%'"
 
 echo.

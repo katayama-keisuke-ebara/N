@@ -8,6 +8,10 @@
   Polygon(outer, holes) 同士なら他部品が穴の内部に収まる配置も許容される。
 - 穴埋め二次パス (`_fill_holes`) は既配置部品の穴へ残り部品を詰めるが、
   厳密な内側NFP計算ではなく重心合わせ+contains判定による近似ヒューリスティック。
+- 上記に加え、整列と端材の連続性を優先するグリッド整列戦略も候補の1つとして提供する
+  (`_run_shelf_strategy`)。同一部品を行×列の格子ブロックにまとめて空き矩形へ敷き詰め、
+  残りをギロチン分割して再利用する。切り出しやすいレイアウトを望む場合の選択肢として
+  常に候補一覧に残す。
 """
 
 from __future__ import annotations
@@ -41,6 +45,8 @@ _SCALE = 100000.0  # pyclipper は整数座標のみ対応のためスケーリ�
 _AXIS_ROTATIONS: tuple[float, ...] = (0.0, 90.0, 180.0, 270.0)
 _DIAGONAL_ROTATIONS: tuple[float, ...] = (45.0, 135.0, 225.0, 315.0)
 _ROTATIONS: tuple[float, ...] = _AXIS_ROTATIONS + _DIAGONAL_ROTATIONS
+# グリッド整列戦略専用。180/270は0/90とbboxが同じなので試さない。
+_SHELF_REPRESENTATIVE_ANGLES: tuple[float, ...] = (0.0, 90.0)
 # NFP頂点は pyclipper の整数丸め (1/_SCALE mm 単位) を経由するため、理論上ぴったり
 # 密着するはずの配置でも量子化誤差分だけ僅かに重なり判定される。閾値が厳しすぎると
 # その丸め誤差(面積にして 1e-3〜1e-2 mm² オーダー)を「衝突」と誤判定し、密着配置
@@ -134,8 +140,16 @@ class NestingEngine:
             seen_signatures.add(signature)
             candidates.append(candidate)
 
+        shelf_candidate = self._run_shelf_strategy(parts)
+        if shelf_candidate is not None:
+            candidates.append(shelf_candidate)
+
         candidates.sort(key=lambda c: c.yield_pct, reverse=True)
-        return candidates[:max_candidates]
+        result = candidates[:max_candidates]
+        # 整列レイアウトは「選べる候補」であることが目的なので、歩留まり順位から漏れても残す。
+        if shelf_candidate is not None and not any(c is shelf_candidate for c in result):
+            result.append(shelf_candidate)
+        return result
 
     # ================================================================== #
     # 戦略実行
@@ -184,6 +198,128 @@ class NestingEngine:
                 part.id, theoretical, _AUTO_QUANTITY_HARD_CAP,
             )
         return min(theoretical, _AUTO_QUANTITY_HARD_CAP)
+
+    # ================================================================== #
+    # 整列(グリッド)戦略: 同一部品を格子ブロック化しギロチン分割で敷き詰める
+    # ================================================================== #
+
+    def _run_shelf_strategy(self, parts: list[Part]) -> NestingCandidate | None:
+        """グリッド+ギロチン分割による整列配置戦略。
+
+        NFPベースのbottom-left-fillと異なり、同一部品を「行×列の格子ブロック」に
+        まとめて空き矩形へ敷き詰めるため、部材が綺麗に整列し切り出しやすい。
+        ブロックを置いた残りは右側/上側の空き矩形としてプールへ戻すので、
+        ブロック右端に生じた端材も後続の部品(または向きを変えた同じ部品)で埋められる。
+        向きは0°/90°のうち「その空き矩形に最も多く取れる方」を矩形ごとに選ぶ。
+        """
+        plan = self._grid_pack(parts)
+        if not plan:
+            return None
+
+        placed: list[_Placed] = []
+        placements: list[PlacedInstance] = []
+        count_per_part: dict[str, int] = {p.id: 0 for p in parts}
+        for part, angle, shape, ox, oy in plan:
+            self._commit_placement(part, shape, angle, ox, oy, placed, placements, count_per_part)
+
+        ordered = sorted(parts, key=lambda p: p.net_area, reverse=True)
+        self._fill_holes(ordered, placed, placements, count_per_part)
+
+        return self._build_candidate("shelf_grid", parts, placements, count_per_part)
+
+    def _grid_pack(
+        self, parts: list[Part]
+    ) -> list[tuple[Part, float, _RotatedShape, float, float]]:
+        """空き矩形プールに対し「1矩形=1部品種の格子ブロック」を貪欲に敷き詰める。"""
+        eps = 1e-6
+        # 各部品の0°/90°について、クリアランス込みのセル寸法を事前計算する。
+        variants: dict[str, list[tuple[float, float, float, _RotatedShape]]] = {}
+        for part in parts:
+            entries = []
+            for angle in _SHELF_REPRESENTATIVE_ANGLES:
+                shape = self._get_rotated(part, angle)
+                bx0, by0, bx1, by1 = bounds(shape.buffered_outer)
+                entries.append((angle, bx1 - bx0, by1 - by0, shape))
+            variants[part.id] = entries
+
+        remaining = {
+            p.id: (p.quantity if p.quantity > 0 else self._auto_quantity_limit(p)) for p in parts
+        }
+        # 数量を明示指定したパーツを先に確保し、自動最大パーツは残った空き矩形のみを使う。
+        phases = [
+            [p for p in parts if p.quantity > 0],
+            [p for p in parts if p.quantity <= 0],
+        ]
+
+        free: list[tuple[float, float, float, float]] = [(0.0, 0.0, self._sheet_w, self._sheet_h)]
+        result: list[tuple[Part, float, _RotatedShape, float, float]] = []
+
+        for phase_parts in phases:
+            if not phase_parts:
+                continue
+            while True:
+                best = None
+                for ri, (rx, ry, rw, rh) in enumerate(free):
+                    for part in phase_parts:
+                        left = remaining[part.id]
+                        if left <= 0:
+                            continue
+                        for angle, cw, ch, shape in variants[part.id]:
+                            cols = int((rw + eps) // cw)
+                            rows = int((rh + eps) // ch)
+                            if cols < 1 or rows < 1:
+                                continue
+                            n = min(cols * rows, left)
+                            use_cols = min(cols, n)
+                            block_w = use_cols * cw
+                            block_h = -(-n // use_cols) * ch
+                            # 同じ面積を埋められるなら、より小さいブロックに収めた方が
+                            # 大きな空き矩形を後続の部品用に残せる(best-fit)。
+                            key = (-n * part.net_area, block_w * block_h, ry, rx)
+                            if best is None or key < best[0]:
+                                best = (key, ri, part, angle, shape, cw, ch, use_cols, n)
+                if best is None:
+                    break
+
+                _, ri, part, angle, shape, cw, ch, use_cols, n = best
+                rx, ry, rw, rh = free.pop(ri)
+                for i in range(n):
+                    result.append(
+                        (part, angle, shape, rx + (i % use_cols) * cw, ry + (i // use_cols) * ch)
+                    )
+                remaining[part.id] -= n
+                free.extend(
+                    self._split_free_rect(
+                        rx, ry, rw, rh, use_cols * cw, -(-n // use_cols) * ch
+                    )
+                )
+
+        return result
+
+    @staticmethod
+    def _split_free_rect(
+        rx: float, ry: float, rw: float, rh: float, bw: float, bh: float
+    ) -> list[tuple[float, float, float, float]]:
+        """ブロック配置後のL字型残りをギロチン2分割する。
+
+        横切り(上側を全幅で残す)と縦切り(右側を全高で残す)の2通りを試し、
+        残る矩形のうち最大のものがより大きくなる方を採用する。細切れの端材を
+        作らず、大きな連続領域を次の部品のために温存するための選択。
+        """
+        eps = 1e-6
+        horizontal = [
+            (rx, ry + bh, rw, rh - bh),
+            (rx + bw, ry, rw - bw, bh),
+        ]
+        vertical = [
+            (rx + bw, ry, rw - bw, rh),
+            (rx, ry + bh, bw, rh - bh),
+        ]
+        chosen = max(
+            (horizontal, vertical),
+            key=lambda cand: max(w * h for _, _, w, h in cand),
+        )
+        return [r for r in chosen if r[2] > eps and r[3] > eps]
 
     def _commit_placement(
         self,

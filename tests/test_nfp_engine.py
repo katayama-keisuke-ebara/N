@@ -161,3 +161,85 @@ class TestAutoQuantity:
         tiny.net_area = net_area(tiny.outer, tiny.holes)
         engine = NestingEngine(sheet_w=100000.0, sheet_h=100000.0, clearance=0.0)
         assert engine._auto_quantity_limit(tiny) <= 2000
+
+
+class TestShelfGrid:
+    """整列(グリッド+ギロチン分割)戦略: 整列と端材の連続性を優先する候補。"""
+
+    def test_shelf_grid_candidate_is_included_and_aligned(self) -> None:
+        part = Part(id="sq", name="square", outer=_rect(50, 30), quantity=20)
+        engine = NestingEngine(sheet_w=300.0, sheet_h=200.0, clearance=5.0)
+        candidates = engine.generate_candidates([part])
+
+        shelf = next((c for c in candidates if c.strategy_name == "shelf_grid"), None)
+        assert shelf is not None
+        assert shelf.count_per_part["sq"] > 0
+
+        # 同一部品・同一回転の配置は同じ行(y座標)を共有し、綺麗に整列しているはず。
+        rows = {round(pl.y, 3) for pl in shelf.placements if pl.rotation_deg == 0.0}
+        assert len(rows) <= (shelf.count_per_part["sq"])  # 過剰な行数になっていない
+
+        _assert_no_overlaps(shelf, {"sq": part})
+
+    def test_shelf_grid_uses_rotation_when_needed(self) -> None:
+        # 60x30 の部品は 0° では 40 幅のシートに入らないが、90° 回転すれば収まる
+        part = Part(id="p", name="p", outer=_rect(60, 30), quantity=1)
+        engine = NestingEngine(sheet_w=40.0, sheet_h=70.0, clearance=0.0)
+        candidates = engine.generate_candidates([part])
+
+        shelf = next((c for c in candidates if c.strategy_name == "shelf_grid"), None)
+        assert shelf is not None
+        assert shelf.count_per_part["p"] == 1
+        _assert_no_overlaps(shelf, {"p": part})
+
+    def test_shelf_grid_handles_mixed_parts_without_overlap(self) -> None:
+        parts = [
+            Part(id="a", name="a", outer=_rect(100, 60), quantity=3),
+            Part(id="b", name="b", outer=_rect(40, 40), quantity=5),
+        ]
+        engine = NestingEngine(sheet_w=300.0, sheet_h=200.0, clearance=5.0)
+        candidates = engine.generate_candidates(parts, max_candidates=3)
+
+        shelf = next((c for c in candidates if c.strategy_name == "shelf_grid"), None)
+        assert shelf is not None
+        _assert_no_overlaps(shelf, {"a": parts[0], "b": parts[1]})
+
+    def test_fixed_quantity_not_starved_by_auto_max_part(self) -> None:
+        # 回帰テスト: 数量指定なし(自動最大)パーツと混在した際、数量を明示指定した
+        # パーツが軸選択(縦/横)の巻き添えで取りこぼされ0個になっていた不具合の修正確認。
+        fixed = Part(id="fixed", name="fixed", outer=_rect(45, 90), quantity=2)
+        auto = Part(id="auto", name="auto", outer=_rect(15, 15), quantity=0)
+        engine = NestingEngine(sheet_w=50.0, sheet_h=200.0, clearance=0.0)
+        candidates = engine.generate_candidates([fixed, auto])
+
+        shelf = next((c for c in candidates if c.strategy_name == "shelf_grid"), None)
+        assert shelf is not None
+        assert shelf.count_per_part["fixed"] == 2
+        _assert_no_overlaps(shelf, {"fixed": fixed, "auto": auto})
+
+    def test_orientation_maximizes_count_per_free_rect(self) -> None:
+        # 90x30 の部品は 300x100 のシートに、0°なら 3x3=9個、90°なら 10x1=10個。
+        # 向きを行ごとの取れ数で選ぶため、多く取れる90°が選ばれる。
+        part = Part(id="p", name="p", outer=_rect(90, 30), quantity=0)
+        engine = NestingEngine(sheet_w=300.0, sheet_h=100.0, clearance=0.0)
+        candidates = engine.generate_candidates([part])
+
+        shelf = next((c for c in candidates if c.strategy_name == "shelf_grid"), None)
+        assert shelf is not None
+        assert shelf.count_per_part["p"] >= 10
+        _assert_no_overlaps(shelf, {"p": part})
+
+    def test_right_side_remnant_is_reused(self) -> None:
+        # 幅120のブロックを置いた後、右側に残る幅80の端材帯も空き矩形として再利用される。
+        big = Part(id="big", name="big", outer=_rect(60, 100), quantity=2)
+        small = Part(id="small", name="small", outer=_rect(40, 50), quantity=4)
+        engine = NestingEngine(sheet_w=200.0, sheet_h=100.0, clearance=0.0)
+        candidates = engine.generate_candidates([big, small])
+
+        shelf = next((c for c in candidates if c.strategy_name == "shelf_grid"), None)
+        assert shelf is not None
+        assert shelf.count_per_part["big"] == 2
+        assert shelf.count_per_part["small"] == 4
+        _assert_no_overlaps(shelf, {"big": big, "small": small})
+
+

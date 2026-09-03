@@ -67,7 +67,7 @@ def render_nesting_png(
     sheet_h: float,
 ) -> bytes:
     """選択中の分布案を PNG バイト列として描画する (150 DPI)。"""
-    fig = Figure(figsize=(12, 4), tight_layout=True)
+    fig = Figure(figsize=(12, 4))
     ax = fig.add_subplot(111)
     ax.set_aspect("equal")
     ax.set_facecolor("#fafafa")
@@ -111,7 +111,12 @@ def render_nesting_png(
     ]
     legend_labels = [Path(part_lookup[pid]["step_path"]).stem for pid in part_lookup]
     if legend_handles:
-        ax.legend(legend_handles, legend_labels, loc="upper right", fontsize=8, framealpha=0.8)
+        # プロット領域の下に常に配置し、定尺シートの描画と重ならないようにする
+        ncol = min(len(legend_handles), 3)
+        ax.legend(
+            legend_handles, legend_labels, loc="upper center", bbox_to_anchor=(0.5, -0.12),
+            ncol=ncol, fontsize=8, framealpha=0.8,
+        )
 
     margin_x = sheet_w * 0.03
     margin_y = sheet_h * 0.03
@@ -128,5 +133,5 @@ def render_nesting_png(
     ax.grid(True, alpha=0.25, linestyle="--")
 
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=150)
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
     return buf.getvalue()
