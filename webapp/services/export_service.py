@@ -13,11 +13,27 @@ logger = logging.getLogger(__name__)
 _SUMMARY_HEADERS = [
     "処理日時", "部品一覧", "分布案", "取り数合計", "歩留まり (%)",
     "残材面積 (mm²)", "穴面積合計 (mm²)", "定尺",
+    "密度 (g/cm³)", "部材重量合計 (kg)", "端材重量 (kg)",
 ]
 
 _PARTS_HEADERS = [
     "部品名", "数量指定", "配置数", "部品面積 (3D, mm²)", "展開面積 (mm²)", "穴面積合計 (mm²)",
+    "重量 (kg)",
 ]
+
+
+def _weight_kg(area_mm2: float, thickness_mm: float, density_g_cm3: float) -> float:
+    """mm² × mm × g/cm³ を kg に換算する (mm³をcm³化してgを得てからkgへ)。"""
+    return area_mm2 * thickness_mm * density_g_cm3 / 1_000_000.0
+
+
+def _scrap_area(candidate: dict) -> float:
+    """シート面積から配置部品の正味面積と穴面積を差し引いた端材面積。"""
+    return max(
+        0.0,
+        candidate.get("sheet_area", 0) - candidate.get("total_used_area", 0)
+        - candidate.get("total_hole_area", 0),
+    )
 
 
 class ExportService:
@@ -60,6 +76,22 @@ class ExportService:
             ("材料厚み", params.get("thickness", 0), "mm"),
             ("クリアランス", params.get("clearance", 0), "mm"),
             ("定尺面積", round(sheet_area, 4), "mm²"),
+            ("密度", params.get("density", 0), "g/cm³"),
+            (
+                "部材重量合計",
+                round(_weight_kg(
+                    candidate.get("total_used_area", 0), params.get("thickness", 0),
+                    params.get("density", 0),
+                ), 4),
+                "kg",
+            ),
+            (
+                "端材重量",
+                round(_weight_kg(
+                    _scrap_area(candidate), params.get("thickness", 0), params.get("density", 0),
+                ), 4),
+                "kg",
+            ),
         ]
 
         for row_idx, row_data in enumerate(rows, start=1):
@@ -80,13 +112,18 @@ class ExportService:
             part_id = result.get("part_id") or f"{Path(result['step_path']).stem}_{row_idx - 2}"
             quantity = result.get("quantity", 1)
             quantity_label = "自動(最大)" if quantity <= 0 else quantity
+            count = count_per_part.get(part_id, 0)
             parts_ws.append([
                 Path(result["step_path"]).stem,
                 quantity_label,
-                count_per_part.get(part_id, 0),
+                count,
                 round(result.get("part_area", 0), 4),
                 round(result.get("flattened_area", 0), 4),
                 round(sum(_hole_area(h) for h in result.get("holes", [])), 4),
+                round(_weight_kg(
+                    result.get("flattened_area", 0) * count, params.get("thickness", 0),
+                    params.get("density", 0),
+                ), 4),
             ])
         for col in parts_ws.columns:
             parts_ws.column_dimensions[col[0].column_letter].width = 22
@@ -118,6 +155,14 @@ class ExportService:
             round(candidate.get("remaining_area", 0), 4),
             round(candidate.get("total_hole_area", 0), 4),
             sheet_size,
+            params.get("density", 0),
+            round(_weight_kg(
+                candidate.get("total_used_area", 0), params.get("thickness", 0),
+                params.get("density", 0),
+            ), 4),
+            round(_weight_kg(
+                _scrap_area(candidate), params.get("thickness", 0), params.get("density", 0),
+            ), 4),
         ]
 
         if summary_path.exists():

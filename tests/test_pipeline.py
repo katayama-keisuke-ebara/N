@@ -71,7 +71,7 @@ class TestFlattenPipelineRun:
         result = FlattenPipeline().run(step_file, tmp_path / "out")
         required = {
             "part_area", "flattened_area", "area_diff_pct",
-            "points", "holes",
+            "points", "holes", "width", "height",
             "dxf_path", "png_path", "result_path",
             "best_method", "error_rate", "quality", "neutral_radius", "warning",
         }

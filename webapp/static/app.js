@@ -38,6 +38,7 @@ async function init() {
     document.getElementById("sheet_h").value = config.sheet_h;
     document.getElementById("thickness").value = config.thickness;
     document.getElementById("clearance").value = config.clearance;
+    document.getElementById("density").value = config.density;
   }
 
   document.getElementById("file-input").addEventListener("change", onFilesSelected);
@@ -80,6 +81,7 @@ async function onRun() {
   const sheet_h = parseFloat(document.getElementById("sheet_h").value);
   const thickness = parseFloat(document.getElementById("thickness").value);
   const clearance = parseFloat(document.getElementById("clearance").value);
+  const density = parseFloat(document.getElementById("density").value);
 
   document.getElementById("run-btn").disabled = true;
   statusText.textContent = "アップロード中…";
@@ -103,7 +105,7 @@ async function onRun() {
     const jobRes = await apiFetch("api/jobs", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({parts, sheet_w, sheet_h, thickness, clearance}),
+      body: JSON.stringify({parts, sheet_w, sheet_h, thickness, clearance, density}),
     });
     if (!jobRes.ok) {
       const data = await jobRes.json().catch(() => ({}));
@@ -115,7 +117,7 @@ async function onRun() {
     await apiFetch("api/config", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({parts: [], sheet_w, sheet_h, thickness, clearance}),
+      body: JSON.stringify({parts: [], sheet_w, sheet_h, thickness, clearance, density}),
     });
 
     pollJob();
@@ -177,17 +179,29 @@ function renderCandidate() {
   document.getElementById("nesting-image").src =
     `api/jobs/${currentJobId}/render?candidate=${currentCandidateIndex}&t=${Date.now()}`;
 
+  const thickness = parseFloat(document.getElementById("thickness").value) || 0;
+  const density = parseFloat(document.getElementById("density").value) || 0;
+
   const tbody = document.querySelector("#breakdown-table tbody");
   tbody.innerHTML = "";
   currentResults.forEach((r, i) => {
     const partId = r.part_id || `${r.step_path.replace(/\.[^/.]+$/, "")}_${i}`;
     const count = candidate.count_per_part[partId] || 0;
     const qtyLabel = r.quantity <= 0 ? "自動(最大)" : r.quantity;
+    const partWeightKg = r.flattened_area * count * thickness * density / 1e6;
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${r.step_path}</td><td>${qtyLabel}</td><td>${count}</td>` +
-      `<td>${r.part_area.toFixed(2)}</td><td>${r.flattened_area.toFixed(2)}</td>`;
+      `<td>${r.width.toFixed(2)}</td><td>${r.height.toFixed(2)}</td>` +
+      `<td>${r.part_area.toFixed(2)}</td><td>${r.flattened_area.toFixed(2)}</td>` +
+      `<td>${partWeightKg.toFixed(3)}</td>`;
     tbody.appendChild(tr);
   });
+
+  const scrapArea = Math.max(0, candidate.sheet_area - candidate.total_used_area - candidate.total_hole_area);
+  const partsWeightKg = candidate.total_used_area * thickness * density / 1e6;
+  const scrapWeightKg = scrapArea * thickness * density / 1e6;
+  document.getElementById("weight-summary").textContent =
+    `部材重量合計: ${partsWeightKg.toFixed(3)} kg　端材重量: ${scrapWeightKg.toFixed(3)} kg`;
 }
 
 async function onDownloadZip() {

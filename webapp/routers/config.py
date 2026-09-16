@@ -16,12 +16,14 @@ _DEFAULTS = {
     "sheet_h": 2000.0,
     "thickness": 10.0,
     "clearance": 5.0,
+    "density": 1.0,
 }
 
 
 @router.get("")
 def load_config(user: CurrentUser = Depends(get_current_user)) -> dict:
-    return db.get_user_config(user.id) or dict(_DEFAULTS)
+    # 保存済み設定に無いキー(旧データ由来の density 欠損等)はデフォルトで補完する。
+    return {**_DEFAULTS, **(db.get_user_config(user.id) or {})}
 
 
 @router.post("", dependencies=[Depends(verify_csrf)])

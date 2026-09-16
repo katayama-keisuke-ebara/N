@@ -74,6 +74,10 @@ class FlattenPipeline:
 
         holes = best.holes
 
+        # 縦/横寸法は展開後の外周バウンディングボックスから算出
+        width = max(p[0] for p in flat_points) - min(p[0] for p in flat_points) if flat_points else 0.0
+        height = max(p[1] for p in flat_points) - min(p[1] for p in flat_points) if flat_points else 0.0
+
         # 4. DXF 出力
         dxf_path = output_dir / "part_flat.dxf"
         try:
@@ -94,7 +98,9 @@ class FlattenPipeline:
         # 6. result.json 出力
         result_path = output_dir / "result.json"
         try:
-            self._writer.write(part_area, flattened_area, result_path, holes=holes)
+            self._writer.write(
+                part_area, flattened_area, result_path, holes=holes, width=width, height=height
+            )
         except Exception as exc:
             logger.error("result.json 出力失敗: %s", exc)
             raise ResultWriteError(f"result.json 出力失敗: {exc}") from exc
@@ -111,6 +117,8 @@ class FlattenPipeline:
             "area_diff_pct": area_diff_pct,
             "points": flat_points,
             "holes": holes,
+            "width": width,
+            "height": height,
             "dxf_path": str(dxf_path),
             "png_path": str(png_path),
             "result_path": str(result_path),

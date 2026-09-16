@@ -13,8 +13,10 @@ class ResultWriter:
         flattened_area: float,
         output_path: str | Path,
         holes: list[list[tuple[float, float]]] | None = None,
+        width: float = 0.0,
+        height: float = 0.0,
     ) -> None:
-        """part_area・flattened_area・面積差分率 (%)・穴情報を JSON 形式で保存する。"""
+        """part_area・flattened_area・面積差分率 (%)・穴情報・縦横寸法を JSON 形式で保存する。"""
         if part_area > 0.0:
             diff_pct = abs(part_area - flattened_area) / part_area * 100.0
         else:
@@ -25,6 +27,8 @@ class ResultWriter:
             "part_area": round(part_area, 4),
             "flattened_area": round(flattened_area, 4),
             "area_diff_pct": round(diff_pct, 4),
+            "width": round(width, 4),
+            "height": round(height, 4),
             "hole_count": len(hole_list),
             "holes": [[list(pt) for pt in hole] for hole in hole_list],
         }

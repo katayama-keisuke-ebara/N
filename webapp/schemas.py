@@ -22,6 +22,7 @@ class CreateJobRequest(BaseModel):
     sheet_h: float = Field(gt=0, le=100000)
     thickness: float = Field(gt=0, le=1000)
     clearance: float = Field(ge=0, le=1000)
+    density: float = Field(gt=0, le=50)
 
 
 class JobStatusResponse(BaseModel):
@@ -37,3 +38,4 @@ class UserConfigRequest(BaseModel):
     sheet_h: float = 2000.0
     thickness: float = 10.0
     clearance: float = 5.0
+    density: float = 1.0

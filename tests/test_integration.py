@@ -108,6 +108,8 @@ def _make_candidate() -> dict:
         "yield_pct": 75.0,
         "remaining_area": 50000.0,
         "total_hole_area": 0.0,
+        "total_used_area": 5970.0,  # 995.0 (flattened_area) * 6
+        "sheet_area": 2000000.0,  # sheet_w * sheet_h
     }
 
 
@@ -118,6 +120,7 @@ def _make_params() -> dict:
         "sheet_h": 2000.0,
         "thickness": 10.0,
         "clearance": 5.0,
+        "density": 1.0,
     }
 
 
@@ -160,6 +163,20 @@ class TestExportServiceSummary:
         ws = wb["Summary"]
         # 定尺列は 8 列目
         assert "×" in str(ws.cell(row=2, column=8).value)
+
+    def test_summary_weight_columns(self, tmp_path: Path) -> None:
+        ExportService().append_to_summary(
+            _make_results(), _make_candidate(), _make_params(), tmp_path
+        )
+        wb = openpyxl.load_workbook(tmp_path / "summary.xlsx")
+        ws = wb["Summary"]
+        assert ws.cell(row=1, column=9).value == "密度 (g/cm³)"
+        assert ws.cell(row=1, column=10).value == "部材重量合計 (kg)"
+        assert ws.cell(row=1, column=11).value == "端材重量 (kg)"
+        # total_used_area(5970.0) * thickness(10.0) * density(1.0) / 1e6
+        assert ws.cell(row=2, column=10).value == pytest.approx(0.0597)
+        # scrap_area = sheet_area(2000000.0) - total_used_area(5970.0) - total_hole_area(0.0)
+        assert ws.cell(row=2, column=11).value == pytest.approx(19.9403)
 
     def test_save_excel_sheet_name_is_summary(self, tmp_path: Path) -> None:
         dst = str(tmp_path / "out.xlsx")

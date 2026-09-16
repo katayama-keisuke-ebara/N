@@ -42,6 +42,7 @@ def _run_job(
     sheet_h: float,
     thickness: float,
     clearance: float,
+    density: float,
     output_dir: str,
     progress_queue,
 ) -> dict:
@@ -54,6 +55,7 @@ def _run_job(
         StepReadError,
         UnfoldError,
     )
+    from src.export.dxf_exporter import DxfExporter
     from src.pipeline import FlattenPipeline
     from webapp.services.export_service import ExportService
     from webapp.services.nesting_service import NestingService
@@ -92,12 +94,24 @@ def _run_job(
     ]
     candidates = NestingService().calculate_candidates(nesting_parts, sheet_w, sheet_h, clearance)
 
+    for i, candidate in enumerate(candidates):
+        dxf_name = f"nesting_案{i + 1}_{candidate['strategy_name']}.dxf"
+        try:
+            DxfExporter().export_nesting(
+                results, candidate, sheet_w, sheet_h, Path(output_dir) / dxf_name
+            )
+        except Exception:
+            logger.warning("ネスティングDXF出力失敗 (job=%s, %s)", job_id, dxf_name, exc_info=True)
+
     if candidates:
         try:
             ExportService().append_to_summary(
                 results,
                 candidates[0],
-                {"sheet_w": sheet_w, "sheet_h": sheet_h, "thickness": thickness, "clearance": clearance},
+                {
+                    "sheet_w": sheet_w, "sheet_h": sheet_h, "thickness": thickness,
+                    "clearance": clearance, "density": density,
+                },
                 output_dir=output_dir,
             )
         except Exception:
@@ -136,11 +150,12 @@ class JobManager:
         sheet_h: float,
         thickness: float,
         clearance: float,
+        density: float,
         output_dir: str,
     ) -> None:
         db.update_job(job_id, status="running")
         future = self._executor.submit(
-            _run_job, job_id, parts, sheet_w, sheet_h, thickness, clearance, output_dir,
+            _run_job, job_id, parts, sheet_w, sheet_h, thickness, clearance, density, output_dir,
             self._progress_queue,
         )
         future.add_done_callback(lambda f: self._on_done(job_id, f))

@@ -61,3 +61,17 @@ class TestResultWriter:
         data = json.loads(output.read_text())
         assert data["hole_count"] == 0
         assert data["holes"] == []
+
+    def test_width_height_written_to_json(self, tmp_path) -> None:
+        output = tmp_path / "result.json"
+        ResultWriter().write(1000.0, 995.0, output, width=123.456, height=78.9)
+        data = json.loads(output.read_text())
+        assert data["width"] == 123.456
+        assert data["height"] == 78.9
+
+    def test_width_height_default_to_zero(self, tmp_path) -> None:
+        output = tmp_path / "result.json"
+        ResultWriter().write(1000.0, 995.0, output)
+        data = json.loads(output.read_text())
+        assert data["width"] == 0.0
+        assert data["height"] == 0.0
