@@ -50,6 +50,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="NetsingTool Web", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="static")
+app.mount("/img", StaticFiles(directory=str(_BASE_DIR / "templates" / "img")), name="img")
 app.include_router(auth.router)
 app.include_router(jobs.router)
 app.include_router(config.router)

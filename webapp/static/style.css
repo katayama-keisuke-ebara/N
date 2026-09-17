@@ -19,6 +19,25 @@ header h1 {
   margin: 0;
 }
 
+.panel-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.panel-title-text {
+  flex: 1;
+  min-width: 0;
+}
+
+#header-ref-image {
+  width: 300px;
+  max-width: 50%;
+  object-fit: contain;
+  align-self: stretch;
+}
+
 .formula {
   display: block;
   color: #666;

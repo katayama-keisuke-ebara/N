@@ -17,13 +17,18 @@
 
 <main>
   <section class="panel" id="settings-panel">
-    <h2>部品・パラメータ設定</h2>
-    <label>STEP ファイル (複数選択可)
-      <input type="file" id="file-input" accept=".step,.stp" multiple>
-    </label>
-    <div class="shape-actions">
-      <button type="button" id="add-rectangle-btn">+ 矩形を追加</button>
-      <button type="button" id="add-circle-btn">+ 円形を追加</button>
+    <div class="panel-title">
+      <div class="panel-title-text">
+        <h2>部品・パラメータ設定</h2>
+        <label>STEP ファイル (複数選択可)
+          <input type="file" id="file-input" accept=".step,.stp" multiple>
+        </label>
+        <div class="shape-actions">
+          <button type="button" id="add-rectangle-btn">+ 矩形を追加</button>
+          <button type="button" id="add-circle-btn">+ 円形を追加</button>
+        </div>
+      </div>
+      <img src="img/sub.png" alt="参考図" id="header-ref-image">
     </div>
     <table id="parts-table">
       <thead><tr><th>種別</th><th>名称・寸法</th><th>数量</th><th>操作</th></tr></thead>

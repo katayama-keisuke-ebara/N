@@ -96,7 +96,7 @@ function renderPartsTable() {
     const qtyInput = createNumberInput(
       selectedFileQuantities[i],
       (value) => { selectedFileQuantities[i] = value; },
-      {step: "1", max: "10000", title: "0または負数で自動計算(最大取り数)"},
+      {step: "1", max: "10000", title: "負数で自動計算(最大取り数)"},
     );
     qtyTd.appendChild(qtyInput);
     const actionTd = document.createElement("td");
