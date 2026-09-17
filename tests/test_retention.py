@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from concurrent.futures import Future
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -22,6 +23,9 @@ def isolated_webapp_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
     monkeypatch.setattr(retention, "KEEP_JOBS_PER_USER", 20)
     monkeypatch.setattr(retention, "MAX_JOB_AGE_DAYS", 30)
     monkeypatch.setattr(retention, "ORPHAN_UPLOAD_MAX_AGE_HOURS", 24)
+    monkeypatch.setattr(retention, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(retention, "KEEP_LOG_FILES", 20)
+    monkeypatch.setattr(retention, "MAX_LOG_AGE_DAYS", 30)
     db.init_db()
     return data_dir
 
@@ -131,6 +135,69 @@ def test_cleanup_orphaned_uploads_preserves_active_and_fresh_uploads(
     assert db.get_upload("active", user_id) is not None
     assert fresh_path.exists()
     assert db.get_upload("fresh", user_id) is not None
+
+
+def test_cleanup_old_logs_applies_count_and_age_without_deleting_active_files(
+    isolated_webapp_data: Path,
+) -> None:
+    now = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    retention.LOG_DIR.mkdir(parents=True)
+    recent_paths = []
+    for index in range(22):
+        path = retention.LOG_DIR / f"server_20260301_{index:06d}.log"
+        path.write_text("log", encoding="ascii")
+        timestamp = (now - timedelta(hours=index)).timestamp()
+        os.utime(path, (timestamp, timestamp))
+        recent_paths.append(path)
+
+    rotated = retention.LOG_DIR / "service_stdout.log-20260101T000000.000"
+    rotated.write_text("rotated", encoding="ascii")
+    old_timestamp = (now - timedelta(days=31)).timestamp()
+    os.utime(rotated, (old_timestamp, old_timestamp))
+
+    active_paths = [
+        retention.LOG_DIR / "app.log",
+        retention.LOG_DIR / "service_stdout.log",
+        retention.LOG_DIR / "service_stderr.log",
+    ]
+    for path in active_paths:
+        path.write_text("active", encoding="ascii")
+        os.utime(path, (old_timestamp, old_timestamp))
+
+    assert retention.cleanup_old_logs(now) == 3
+
+    assert recent_paths[19].exists()
+    assert not recent_paths[20].exists()
+    assert not recent_paths[21].exists()
+    assert not rotated.exists()
+    assert all(path.exists() for path in active_paths)
+
+
+def test_cleanup_old_logs_continues_when_a_file_cannot_be_deleted(
+    isolated_webapp_data: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    retention.LOG_DIR.mkdir(parents=True)
+    locked = retention.LOG_DIR / "server_locked.log"
+    removable = retention.LOG_DIR / "server_removable.log"
+    old_timestamp = (now - timedelta(days=31)).timestamp()
+    for path in (locked, removable):
+        path.write_text("log", encoding="ascii")
+        os.utime(path, (old_timestamp, old_timestamp))
+
+    original_unlink = Path.unlink
+
+    def unlink_with_lock(path: Path, *args, **kwargs) -> None:
+        if path == locked:
+            raise PermissionError("locked")
+        original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", unlink_with_lock)
+
+    assert retention.cleanup_old_logs(now) == 1
+    assert locked.exists()
+    assert not removable.exists()
 
 
 @pytest.mark.parametrize("failed", [False, True])

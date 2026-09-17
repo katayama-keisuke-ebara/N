@@ -145,6 +145,12 @@ C:\tools\nssm\nssm.exe set NetsingToolWeb AppEnvironmentExtra "NESTING_ROOT_PATH
 C:\tools\nssm\nssm.exe set NetsingToolWeb AppStdout "D:\NetsingTool\logs\service_stdout.log"
 C:\tools\nssm\nssm.exe set NetsingToolWeb AppStderr "D:\NetsingTool\logs\service_stderr.log"
 
+# 標準出力・エラーを10MBまたは1日ごとにローテーション
+C:\tools\nssm\nssm.exe set NetsingToolWeb AppRotateFiles 1
+C:\tools\nssm\nssm.exe set NetsingToolWeb AppRotateOnline 1
+C:\tools\nssm\nssm.exe set NetsingToolWeb AppRotateBytes 10485760
+C:\tools\nssm\nssm.exe set NetsingToolWeb AppRotateSeconds 86400
+
 # サーバー起動時に自動開始
 C:\tools\nssm\nssm.exe set NetsingToolWeb Start SERVICE_AUTO_START
 
@@ -237,6 +243,10 @@ nssm start NetsingToolWeb
   古い成果物とDBレコードを削除する。使用済みSTEPはジョブ完了時、未使用STEPは24時間後に削除する。
 - 保持設定: `NESTING_RETENTION_KEEP_JOBS`、`NESTING_RETENTION_MAX_AGE_DAYS`、
   `NESTING_RETENTION_UPLOAD_MAX_AGE_HOURS`、`NESTING_RETENTION_INTERVAL_SECONDS` で既定値を変更できる。
+- ログ保持: `server_*.log` とNSSMのローテーション済みログは、直近20件かつ30日以内を保持する。
+  `NESTING_RETENTION_KEEP_LOG_FILES` と `NESTING_RETENTION_LOG_MAX_AGE_DAYS` で既定値を変更できる。
+  NSSMのローテーション容量・間隔はサーバー負荷に応じて `AppRotateBytes` と
+  `AppRotateSeconds` を調整する。
 - 障害時: `nssm restart NetsingToolWeb` でプロセスプールごと再起動すれば、cadquery/OCP のネイティブクラッシュ
   (詳細は [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) を参照)からも復旧できる。
 

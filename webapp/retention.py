@@ -8,6 +8,7 @@ import os
 import threading
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from webapp import db, storage
 
@@ -20,6 +21,17 @@ ORPHAN_UPLOAD_MAX_AGE_HOURS = int(
 )
 CLEANUP_INTERVAL_SECONDS = int(
     os.environ.get("NESTING_RETENTION_INTERVAL_SECONDS", "3600")
+)
+
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+KEEP_LOG_FILES = int(os.environ.get("NESTING_RETENTION_KEEP_LOG_FILES", "20"))
+MAX_LOG_AGE_DAYS = int(os.environ.get("NESTING_RETENTION_LOG_MAX_AGE_DAYS", "30"))
+_LOG_CLEANUP_GLOBS = (
+    "server_*.log",
+    "service_stdout.log.*",
+    "service_stdout.log-*",
+    "service_stderr.log.*",
+    "service_stderr.log-*",
 )
 
 
@@ -106,13 +118,46 @@ def cleanup_orphaned_uploads(now: datetime | None = None) -> int:
     return deleted
 
 
+def cleanup_old_logs(now: datetime | None = None) -> int:
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=MAX_LOG_AGE_DAYS)
+    candidates: list[tuple[Path, float]] = []
+    seen: set[Path] = set()
+    for pattern in _LOG_CLEANUP_GLOBS:
+        for path in LOG_DIR.glob(pattern):
+            if path in seen:
+                continue
+            seen.add(path)
+            try:
+                if path.is_file():
+                    candidates.append((path, path.stat().st_mtime))
+            except OSError:
+                logger.warning("ログ情報の取得に失敗しました (path=%s)", path, exc_info=True)
+    candidates.sort(key=lambda item: item[1], reverse=True)
+
+    deleted = 0
+    for index, (path, modified_timestamp) in enumerate(candidates):
+        modified_at = datetime.fromtimestamp(modified_timestamp, tz=timezone.utc)
+        if index < KEEP_LOG_FILES and modified_at >= cutoff:
+            continue
+        try:
+            path.unlink()
+            deleted += 1
+            logger.info("期限切れログを削除しました (path=%s)", path)
+        except OSError:
+            logger.warning("期限切れログの削除に失敗しました (path=%s)", path, exc_info=True)
+    return deleted
+
+
 def run_cleanup_once() -> None:
     deleted_jobs = cleanup_old_jobs()
     deleted_uploads = cleanup_orphaned_uploads()
+    deleted_logs = cleanup_old_logs()
     logger.info(
-        "webapp_data クリーンアップ完了 (jobs=%s, uploads=%s)",
+        "定期クリーンアップ完了 (jobs=%s, uploads=%s, logs=%s)",
         deleted_jobs,
         deleted_uploads,
+        deleted_logs,
     )
 
 
