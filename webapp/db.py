@@ -145,6 +145,28 @@ def get_job(job_id: str) -> sqlite3.Row | None:
         return conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
 
 
+def list_jobs_for_retention() -> list[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT id, user_id, created_at FROM jobs "
+            "WHERE status IN ('done', 'error') "
+            "ORDER BY user_id, created_at DESC, id DESC"
+        ).fetchall()
+
+
+def list_active_job_params() -> list[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT id, params_json FROM jobs WHERE status IN ('queued', 'running')"
+        ).fetchall()
+
+
+def delete_job(job_id: str) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        conn.commit()
+
+
 # ── user_config ──────────────────────────────────────────────────────────
 
 def get_user_config(user_id: int) -> dict | None:
@@ -182,3 +204,17 @@ def get_upload(upload_id: str, user_id: int) -> sqlite3.Row | None:
         return conn.execute(
             "SELECT * FROM uploads WHERE id = ? AND user_id = ?", (upload_id, user_id)
         ).fetchone()
+
+
+def list_stale_uploads(cutoff_iso: str) -> list[sqlite3.Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT id, user_id, stored_path FROM uploads WHERE created_at < ?",
+            (cutoff_iso,),
+        ).fetchall()
+
+
+def delete_upload(upload_id: str) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM uploads WHERE id = ?", (upload_id,))
+        conn.commit()

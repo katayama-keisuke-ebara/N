@@ -19,7 +19,7 @@ from src.nesting.geometry_utils import (
     make_rectangle_polygon,
     shoelace_area,
 )
-from webapp import db
+from webapp import db, storage
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +201,8 @@ class JobManager:
     def submit(
         self,
         job_id: str,
+        user_id: int,
+        upload_ids: list[str],
         parts: list[dict],
         manual_parts: list[dict],
         sheet_w: float,
@@ -215,22 +217,37 @@ class JobManager:
             _run_job, job_id, parts, manual_parts, sheet_w, sheet_h, thickness, clearance, density,
             output_dir, self._progress_queue,
         )
-        future.add_done_callback(lambda f: self._on_done(job_id, f))
+        future.add_done_callback(lambda f: self._on_done(job_id, user_id, upload_ids, f))
 
-    def _on_done(self, job_id: str, future) -> None:
+    def _on_done(self, job_id: str, user_id: int, upload_ids: list[str], future) -> None:
         try:
             outcome = future.result()
         except Exception as exc:
             logger.error("ジョブ失敗 (job=%s): %s", job_id, exc)
             db.update_job(job_id, status="error", error=str(exc), progress="")
-            return
-        db.update_job(
-            job_id,
-            status="done",
-            progress="完了",
-            results=outcome["results"],
-            candidates=outcome["candidates"],
-        )
+        else:
+            db.update_job(
+                job_id,
+                status="done",
+                progress="完了",
+                results=outcome["results"],
+                candidates=outcome["candidates"],
+            )
+        finally:
+            for upload_id in upload_ids:
+                row = db.get_upload(upload_id, user_id)
+                if row is None:
+                    continue
+                try:
+                    storage.delete_upload_file(row["stored_path"])
+                    db.delete_upload(upload_id)
+                except Exception:
+                    logger.warning(
+                        "使用済みアップロードの削除に失敗しました (job=%s, upload=%s)",
+                        job_id,
+                        upload_id,
+                        exc_info=True,
+                    )
 
     def shutdown(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)

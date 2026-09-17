@@ -233,6 +233,10 @@ nssm start NetsingToolWeb
 
 - ログ: アプリログは `logs\`、サービスの標準出力/エラーは手順 6 で設定した `logs\service_std*.log` を確認する。
 - ジョブ実行の並列数: `webapp/jobs.py` の `MAX_WORKERS`(既定 2)。サーバースペックに応じて調整可能。
+- データ保持: 完了・失敗ジョブはユーザーごとに直近20件かつ30日以内を保持し、起動時と1時間ごとに
+  古い成果物とDBレコードを削除する。使用済みSTEPはジョブ完了時、未使用STEPは24時間後に削除する。
+- 保持設定: `NESTING_RETENTION_KEEP_JOBS`、`NESTING_RETENTION_MAX_AGE_DAYS`、
+  `NESTING_RETENTION_UPLOAD_MAX_AGE_HOURS`、`NESTING_RETENTION_INTERVAL_SECONDS` で既定値を変更できる。
 - 障害時: `nssm restart NetsingToolWeb` でプロセスプールごと再起動すれば、cadquery/OCP のネイティブクラッシュ
   (詳細は [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) を参照)からも復旧できる。
 

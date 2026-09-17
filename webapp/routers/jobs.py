@@ -66,7 +66,8 @@ def create_job(
 
     output_dir = storage.job_output_dir(user.id, job_id)
     request.app.state.job_manager.submit(
-        job_id, resolved_parts, [part.model_dump() for part in body.manual_parts],
+        job_id, user.id, [part.upload_id for part in body.parts],
+        resolved_parts, [part.model_dump() for part in body.manual_parts],
         body.sheet_w, body.sheet_h, body.thickness, body.clearance, body.density, str(output_dir),
     )
     return {"job_id": job_id}

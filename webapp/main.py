@@ -27,6 +27,7 @@ from fastapi.templating import Jinja2Templates
 
 from webapp import db
 from webapp.jobs import JobManager
+from webapp.retention import RetentionScheduler
 from webapp.routers import auth, config, jobs
 
 _BASE_DIR = Path(__file__).resolve().parent
@@ -39,8 +40,12 @@ ROOT_PATH = os.environ.get("NESTING_ROOT_PATH", "").rstrip("/")
 async def lifespan(app: FastAPI):
     db.init_db()
     app.state.job_manager = JobManager()
-    yield
-    app.state.job_manager.shutdown()
+    app.state.retention_scheduler = RetentionScheduler()
+    try:
+        yield
+    finally:
+        app.state.retention_scheduler.shutdown()
+        app.state.job_manager.shutdown()
 
 
 app = FastAPI(title="NetsingTool Web", lifespan=lifespan)

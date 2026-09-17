@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import uuid
 from pathlib import Path
 
@@ -34,6 +35,16 @@ def job_output_dir(user_id: int, job_id: str) -> Path:
     path = user_output_dir(user_id) / job_id
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def delete_job_output(user_id: int, job_id: str) -> None:
+    path = OUTPUT_DIR / str(user_id) / job_id
+    if path.exists():
+        shutil.rmtree(path)
+
+
+def delete_upload_file(stored_path: str) -> None:
+    Path(stored_path).unlink(missing_ok=True)
 
 
 def validate_step_upload(filename: str, content: bytes) -> None:

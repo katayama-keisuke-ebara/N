@@ -111,6 +111,8 @@ def test_create_job_accepts_manual_parts_only(monkeypatch) -> None:
         def submit(
             self,
             job_id,
+            user_id,
+            upload_ids,
             resolved_parts,
             manual_parts,
             sheet_w,
@@ -122,6 +124,8 @@ def test_create_job_accepts_manual_parts_only(monkeypatch) -> None:
         ):
             captured["submit"] = {
                 "job_id": job_id,
+                "user_id": user_id,
+                "upload_ids": upload_ids,
                 "resolved_parts": resolved_parts,
                 "manual_parts": manual_parts,
                 "sheet_w": sheet_w,
@@ -154,6 +158,8 @@ def test_create_job_accepts_manual_parts_only(monkeypatch) -> None:
 
     assert "job_id" in result
     assert captured["user_id"] == 1
+    assert captured["submit"]["user_id"] == 1
+    assert captured["submit"]["upload_ids"] == []
     assert captured["submit"]["resolved_parts"] == []
     assert captured["submit"]["manual_parts"][0]["shape_type"] == "rectangle"
     assert captured["submit"]["manual_parts"][0]["quantity"] == 5
