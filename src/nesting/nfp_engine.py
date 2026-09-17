@@ -273,9 +273,13 @@ class NestingEngine:
                             use_cols = min(cols, n)
                             block_w = use_cols * cw
                             block_h = -(-n // use_cols) * ch
-                            # 同じ面積を埋められるなら、より小さいブロックに収めた方が
-                            # 大きな空き矩形を後続の部品用に残せる(best-fit)。
-                            key = (-n * part.net_area, block_w * block_h, ry, rx)
+                            # 空き矩形自体が小さい(=他部品に転用しにくい)ものを最優先で
+                            # 消費する。そうしないと、残数量を1つの広い矩形だけで満たせて
+                            # しまう場合に、細長い帯(他部品しか入らない形状)が使われずに
+                            # 取り残される(歩留まりは同じでも実使用範囲が無駄に広がる)。
+                            # 同順位なら従来どおり、より多く詰められる/小さいブロックに
+                            # 収まる/下側・左側の候補を優先する(best-fit)。
+                            key = (rw * rh, -n * part.net_area, block_w * block_h, ry, rx)
                             if best is None or key < best[0]:
                                 best = (key, ri, part, angle, shape, cw, ch, use_cols, n)
                 if best is None:

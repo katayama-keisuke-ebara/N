@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from src.nesting.geometry_utils import (
@@ -247,6 +249,75 @@ class TestShelfGrid:
         assert shelf is not None
         assert shelf.count_per_part["p"] >= 10
         _assert_no_overlaps(shelf, {"p": part})
+
+    def test_sibling_part_reuses_leftover_strip_within_its_own_quantity(self) -> None:
+        # 回帰テスト: 部品Aの指定数を1つの矩形で満たした後に生じる余白帯は、部品Bが
+        # まだ指定数に達していなければ(=Bを超過させることなく)自動的に埋まる。
+        # A=200x300 x20個 は4列x5行のブロックとなり、右側に幅160mm(clearance込み)の
+        # 帯を残す。B=100x100 x50個 は、1つの矩形(上部帯)だけでは満たしきれない数量
+        # にしてあるため、既存の共有空き矩形プールにより残りが右側帯へ自動的に回る。
+        large = Part(id="large", name="large", outer=_rect(200, 300), quantity=20)
+        small = Part(id="small", name="small", outer=_rect(100, 100), quantity=50)
+        engine = NestingEngine(sheet_w=1000.0, sheet_h=2000.0, clearance=5.0)
+
+        shelf = next(
+            candidate
+            for candidate in engine.generate_candidates([large, small])
+            if candidate.strategy_name == "shelf_grid"
+        )
+
+        # 指定数ちょうど(超過なし)ですべて配置される。
+        assert shelf.count_per_part == {"large": 20, "small": 50}
+        # 50個のうち一部が、大部品のブロック右端(x=820、4列x(200+clearance)mm)以降の
+        # 余白帯に入っている。
+        assert any(
+            placement.part_id == "small" and placement.x >= 820.0
+            for placement in shelf.placements
+        )
+        _assert_no_overlaps(shelf, {"large": large, "small": small})
+
+    def test_smaller_free_rect_is_consumed_before_larger_one_shrinks_footprint(self) -> None:
+        # 回帰テスト: Bの指定数が「上部の広い帯だけで丸ごと満たせてしまう」量(30個)の場合、
+        # 貪欲選択が広い帯(9列x4行=36収容可)を優先すると、右側の狭い帯(1列x14行=14収容可)
+        # が一切使われず取り残っていた(スクリーンショットで報告された見た目の無駄)。
+        # 空き矩形自体が小さいものを優先する選択に変えたことで、まず右側帯へ入り、
+        # 残りだけを上部帯で賄うため、上部帯の使用高さが縮小する。
+        clearance = 5.0
+        large = Part(id="large", name="large", outer=_rect(200, 300), quantity=20)
+        small = Part(id="small", name="small", outer=_rect(100, 100), quantity=30)
+        engine = NestingEngine(sheet_w=1000.0, sheet_h=2000.0, clearance=clearance)
+
+        shelf = next(
+            candidate
+            for candidate in engine.generate_candidates([large, small])
+            if candidate.strategy_name == "shelf_grid"
+        )
+
+        # 指定数ちょうど(超過なし)ですべて配置される。
+        assert shelf.count_per_part == {"large": 20, "small": 30}
+
+        large_cw, large_ch = 200 + clearance, 300 + clearance
+        large_cols = int(1000.0 // large_cw)
+        # 大部品ブロックの右端(=右側の狭い帯の開始x座標)、および上端(=上部帯の開始y座標)
+        block_right_x = large_cols * large_cw
+        top_strip_y = math.ceil(20 / large_cols) * large_ch
+
+        side_strip_placements = [
+            pl for pl in shelf.placements
+            if pl.part_id == "small" and pl.x >= block_right_x - 1e-6 and pl.y < top_strip_y - 1e-6
+        ]
+        top_strip_placements = [
+            pl for pl in shelf.placements if pl.part_id == "small" and pl.y >= top_strip_y - 1e-6
+        ]
+
+        # 右側の狭い帯が実際に使われている(以前は一切使われず空いたままだった)。
+        assert side_strip_placements
+        assert top_strip_placements
+        # 上部帯の使用範囲が、右側帯を使わない場合の4行分より縮小している。
+        small_ch = 100 + clearance
+        max_top_y = max(pl.y for pl in top_strip_placements)
+        assert max_top_y < top_strip_y + 3 * small_ch
+        _assert_no_overlaps(shelf, {"large": large, "small": small})
 
     def test_right_side_remnant_is_reused(self) -> None:
         # 幅120のブロックを置いた後、右側に残る幅80の端材帯も空き矩形として再利用される。

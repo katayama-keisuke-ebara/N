@@ -222,7 +222,15 @@ async function onRun() {
     const jobRes = await apiFetch("api/jobs", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({parts, manual_parts, sheet_w, sheet_h, thickness, clearance, density}),
+      body: JSON.stringify({
+        parts,
+        manual_parts,
+        sheet_w,
+        sheet_h,
+        thickness,
+        clearance,
+        density,
+      }),
     });
     if (!jobRes.ok) {
       const data = await jobRes.json().catch(() => ({}));
@@ -234,7 +242,14 @@ async function onRun() {
     await apiFetch("api/config", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({parts: [], sheet_w, sheet_h, thickness, clearance, density}),
+      body: JSON.stringify({
+        parts: [],
+        sheet_w,
+        sheet_h,
+        thickness,
+        clearance,
+        density,
+      }),
     });
 
     pollJob();

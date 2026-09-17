@@ -148,7 +148,12 @@ def _run_job(
         }
         for r in results
     ]
-    candidates = NestingService().calculate_candidates(nesting_parts, sheet_w, sheet_h, clearance)
+    candidates = NestingService().calculate_candidates(
+        nesting_parts,
+        sheet_w,
+        sheet_h,
+        clearance,
+    )
 
     for i, candidate in enumerate(candidates):
         dxf_name = f"nesting_案{i + 1}_{candidate['strategy_name']}.dxf"
