@@ -19,6 +19,9 @@ async function apiFetch(url, options = {}) {
 }
 
 let selectedFiles = [];
+let selectedFileQuantities = [];
+let manualShapes = [];
+let nextManualShapeId = 1;
 let currentJobId = null;
 let currentResults = [];
 let currentCandidates = [];
@@ -42,6 +45,8 @@ async function init() {
   }
 
   document.getElementById("file-input").addEventListener("change", onFilesSelected);
+  document.getElementById("add-rectangle-btn").addEventListener("click", () => addManualShape("rectangle"));
+  document.getElementById("add-circle-btn").addEventListener("click", () => addManualShape("circle"));
   document.getElementById("run-btn").addEventListener("click", onRun);
   document.getElementById("logout-btn").addEventListener("click", onLogout);
   document.getElementById("download-zip-btn").addEventListener("click", onDownloadZip);
@@ -49,22 +54,131 @@ async function init() {
 
 function onFilesSelected(e) {
   selectedFiles = Array.from(e.target.files);
+  selectedFileQuantities = selectedFiles.map(() => 1);
+  renderPartsTable();
+}
+
+function createNumberInput(value, onInput, options = {}) {
+  const input = document.createElement("input");
+  input.type = "number";
+  input.value = value;
+  input.step = options.step || "0.1";
+  if (options.min !== undefined) input.min = options.min;
+  if (options.max !== undefined) input.max = options.max;
+  if (options.title) input.title = options.title;
+  input.addEventListener("input", () => onInput(input.value));
+  return input;
+}
+
+function addManualShape(shapeType) {
+  manualShapes.push({
+    id: nextManualShapeId++,
+    shape_type: shapeType,
+    width: "100",
+    height: "100",
+    circle_unit: "diameter",
+    circle_value: "100",
+    quantity: "1",
+  });
+  renderPartsTable();
+}
+
+function renderPartsTable() {
   const tbody = document.querySelector("#parts-table tbody");
   tbody.innerHTML = "";
   selectedFiles.forEach((file, i) => {
     const tr = document.createElement("tr");
+    const typeTd = document.createElement("td");
+    typeTd.textContent = "STEP";
     const nameTd = document.createElement("td");
     nameTd.textContent = file.name;
     const qtyTd = document.createElement("td");
-    const qtyInput = document.createElement("input");
-    qtyInput.type = "number";
-    qtyInput.title = "0または負数で自動計算(最大取り数)";
-    qtyInput.value = "1";
-    qtyInput.dataset.index = i;
+    const qtyInput = createNumberInput(
+      selectedFileQuantities[i],
+      (value) => { selectedFileQuantities[i] = value; },
+      {step: "1", max: "10000", title: "0または負数で自動計算(最大取り数)"},
+    );
     qtyTd.appendChild(qtyInput);
+    const actionTd = document.createElement("td");
+    actionTd.textContent = "-";
+    tr.appendChild(typeTd);
     tr.appendChild(nameTd);
     tr.appendChild(qtyTd);
+    tr.appendChild(actionTd);
     tbody.appendChild(tr);
+  });
+
+  manualShapes.forEach((shape, shapeIndex) => {
+    const tr = document.createElement("tr");
+    const typeTd = document.createElement("td");
+    typeTd.textContent = shape.shape_type === "rectangle" ? "矩形" : "円形";
+
+    const dimensionsTd = document.createElement("td");
+    const fields = document.createElement("div");
+    fields.className = "shape-fields";
+    if (shape.shape_type === "rectangle") {
+      fields.append("幅(mm)", createNumberInput(
+        shape.width, (value) => { shape.width = value; }, {min: "0.1", max: "100000"},
+      ));
+      fields.append("高さ(mm)", createNumberInput(
+        shape.height, (value) => { shape.height = value; }, {min: "0.1", max: "100000"},
+      ));
+    } else {
+      const unit = document.createElement("select");
+      unit.innerHTML = '<option value="diameter">直径</option><option value="radius">半径</option>';
+      unit.value = shape.circle_unit;
+      unit.addEventListener("change", () => { shape.circle_unit = unit.value; });
+      fields.append(unit, createNumberInput(
+        shape.circle_value,
+        (value) => { shape.circle_value = value; },
+        {min: "0.1", max: "100000"},
+      ), "mm");
+    }
+    dimensionsTd.appendChild(fields);
+
+    const qtyTd = document.createElement("td");
+    qtyTd.appendChild(createNumberInput(
+      shape.quantity,
+      (value) => { shape.quantity = value; },
+      {step: "1", max: "10000", title: "0または負数で自動計算(最大取り数)"},
+    ));
+
+    const actionTd = document.createElement("td");
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "icon-button danger";
+    removeButton.title = "この形状を削除";
+    removeButton.setAttribute("aria-label", `手動形状${shapeIndex + 1}を削除`);
+    removeButton.textContent = "×";
+    removeButton.addEventListener("click", () => {
+      manualShapes = manualShapes.filter((item) => item.id !== shape.id);
+      renderPartsTable();
+    });
+    actionTd.appendChild(removeButton);
+
+    tr.append(typeTd, dimensionsTd, qtyTd, actionTd);
+    tbody.appendChild(tr);
+  });
+}
+
+function buildManualParts() {
+  return manualShapes.map((shape, index) => {
+    const quantity = parseInt(shape.quantity, 10);
+    if (shape.shape_type === "rectangle") {
+      const width = parseFloat(shape.width);
+      const height = parseFloat(shape.height);
+      if (!(width > 0) || !(height > 0)) {
+        throw new Error(`矩形${index + 1}の幅と高さを入力してください`);
+      }
+      return {shape_type: "rectangle", width, height, quantity: Number.isNaN(quantity) ? 1 : quantity};
+    }
+
+    const value = parseFloat(shape.circle_value);
+    if (!(value > 0)) {
+      throw new Error(`円形${index + 1}の直径または半径を入力してください`);
+    }
+    const radius = shape.circle_unit === "diameter" ? value / 2 : value;
+    return {shape_type: "circle", radius, quantity: Number.isNaN(quantity) ? 1 : quantity};
   });
 }
 
@@ -72,8 +186,8 @@ async function onRun() {
   const errorText = document.getElementById("error-text");
   const statusText = document.getElementById("status-text");
   errorText.textContent = "";
-  if (selectedFiles.length === 0) {
-    errorText.textContent = "STEP ファイルを選択してください";
+  if (selectedFiles.length === 0 && manualShapes.length === 0) {
+    errorText.textContent = "STEP ファイルまたは手動形状を追加してください";
     return;
   }
 
@@ -83,29 +197,32 @@ async function onRun() {
   const clearance = parseFloat(document.getElementById("clearance").value);
   const density = parseFloat(document.getElementById("density").value);
 
-  document.getElementById("run-btn").disabled = true;
-  statusText.textContent = "アップロード中…";
-
   try {
-    const formData = new FormData();
-    selectedFiles.forEach((f) => formData.append("files", f));
-    const uploadRes = await apiFetch("api/uploads", {method: "POST", body: formData});
-    if (!uploadRes.ok) {
-      const data = await uploadRes.json().catch(() => ({}));
-      throw new Error(data.detail || "アップロードに失敗しました");
-    }
-    const uploadData = await uploadRes.json();
+    const manual_parts = buildManualParts();
+    document.getElementById("run-btn").disabled = true;
+    statusText.textContent = selectedFiles.length > 0 ? "アップロード中…" : "ジョブ作成中…";
 
-    const qtyInputs = document.querySelectorAll("#parts-table tbody input[type=number]");
-    const parts = uploadData.uploads.map((u, i) => {
-      const parsed = parseInt(qtyInputs[i].value, 10);
-      return {upload_id: u.upload_id, quantity: Number.isNaN(parsed) ? 1 : parsed};
+    let uploads = [];
+    if (selectedFiles.length > 0) {
+      const formData = new FormData();
+      selectedFiles.forEach((file) => formData.append("files", file));
+      const uploadRes = await apiFetch("api/uploads", {method: "POST", body: formData});
+      if (!uploadRes.ok) {
+        const data = await uploadRes.json().catch(() => ({}));
+        throw new Error(data.detail || "アップロードに失敗しました");
+      }
+      uploads = (await uploadRes.json()).uploads;
+    }
+
+    const parts = uploads.map((upload, i) => {
+      const parsed = parseInt(selectedFileQuantities[i], 10);
+      return {upload_id: upload.upload_id, quantity: Number.isNaN(parsed) ? 1 : parsed};
     });
 
     const jobRes = await apiFetch("api/jobs", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({parts, sheet_w, sheet_h, thickness, clearance, density}),
+      body: JSON.stringify({parts, manual_parts, sheet_w, sheet_h, thickness, clearance, density}),
     });
     if (!jobRes.ok) {
       const data = await jobRes.json().catch(() => ({}));
@@ -190,7 +307,7 @@ function renderCandidate() {
     const qtyLabel = r.quantity <= 0 ? "自動(最大)" : r.quantity;
     const partWeightKg = r.flattened_area * count * thickness * density / 1e6;
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${r.step_path}</td><td>${qtyLabel}</td><td>${count}</td>` +
+    tr.innerHTML = `<td>${r.display_name || r.step_path}</td><td>${qtyLabel}</td><td>${count}</td>` +
       `<td>${r.width.toFixed(2)}</td><td>${r.height.toFixed(2)}</td>` +
       `<td>${r.part_area.toFixed(2)}</td><td>${r.flattened_area.toFixed(2)}</td>` +
       `<td>${partWeightKg.toFixed(3)}</td>`;

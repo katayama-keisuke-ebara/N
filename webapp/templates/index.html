@@ -21,8 +21,12 @@
     <label>STEP ファイル (複数選択可)
       <input type="file" id="file-input" accept=".step,.stp" multiple>
     </label>
+    <div class="shape-actions">
+      <button type="button" id="add-rectangle-btn">+ 矩形を追加</button>
+      <button type="button" id="add-circle-btn">+ 円形を追加</button>
+    </div>
     <table id="parts-table">
-      <thead><tr><th>ファイル名</th><th>数量</th></tr></thead>
+      <thead><tr><th>種別</th><th>名称・寸法</th><th>数量</th><th>操作</th></tr></thead>
       <tbody></tbody>
     </table>
     <p class="hint">※数量に 0 または負の数を入力すると、定尺から最大何個切り出せるか自動計算します。</p>

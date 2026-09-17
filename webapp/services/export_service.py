@@ -114,7 +114,7 @@ class ExportService:
             quantity_label = "自動(最大)" if quantity <= 0 else quantity
             count = count_per_part.get(part_id, 0)
             parts_ws.append([
-                Path(result["step_path"]).stem,
+                result.get("display_name") or Path(result["step_path"]).stem,
                 quantity_label,
                 count,
                 round(result.get("part_area", 0), 4),
@@ -144,7 +144,9 @@ class ExportService:
         summary_path = output_dir / "summary.xlsx"
 
         sheet_size = f"{params.get('sheet_w', 0):.0f}×{params.get('sheet_h', 0):.0f} mm"
-        part_names = ", ".join(Path(r["step_path"]).stem for r in results)
+        part_names = ", ".join(
+            r.get("display_name") or Path(r["step_path"]).stem for r in results
+        )
         count_per_part = candidate.get("count_per_part", {})
         new_row = [
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

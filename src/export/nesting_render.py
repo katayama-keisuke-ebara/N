@@ -106,10 +106,16 @@ def render_nesting_png(
         )
 
     legend_handles = [
-        Patch(facecolor=color_by_id[pid], edgecolor="#1a1a1a", label=part_lookup[pid]["step_path"])
+        Patch(
+            facecolor=color_by_id[pid], edgecolor="#1a1a1a",
+            label=part_lookup[pid].get("display_name") or part_lookup[pid]["step_path"],
+        )
         for pid in part_lookup
     ]
-    legend_labels = [Path(part_lookup[pid]["step_path"]).stem for pid in part_lookup]
+    legend_labels = [
+        part_lookup[pid].get("display_name") or Path(part_lookup[pid]["step_path"]).stem
+        for pid in part_lookup
+    ]
     if legend_handles:
         # プロット領域の下に常に配置し、定尺シートの描画と重ならないようにする
         ncol = min(len(legend_handles), 3)

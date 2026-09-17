@@ -13,6 +13,12 @@ import threading
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
+from src.nesting.geometry_utils import (
+    bounds,
+    make_circle_polygon,
+    make_rectangle_polygon,
+    shoelace_area,
+)
 from webapp import db
 
 logger = logging.getLogger(__name__)
@@ -35,9 +41,50 @@ def _safe_stem(name: str) -> str:
     return stem
 
 
+def _build_manual_result(part: dict, index: int) -> dict:
+    shape_type = part["shape_type"]
+    if shape_type == "rectangle":
+        width = float(part["width"])
+        height = float(part["height"])
+        points = make_rectangle_polygon(width, height)
+        display_name = f"矩形{index + 1}_{width:g}x{height:g}mm"
+    else:
+        radius = float(part["radius"])
+        points = make_circle_polygon(radius)
+        _, _, max_x, max_y = bounds(points)
+        width = max_x
+        height = max_y
+        display_name = f"円形{index + 1}_R{radius:g}mm"
+
+    area = shoelace_area(points)
+    return {
+        "part_area": area,
+        "flattened_area": area,
+        "area_diff_pct": 0.0,
+        "points": points,
+        "holes": [],
+        "width": width,
+        "height": height,
+        "dxf_path": None,
+        "png_path": None,
+        "result_path": None,
+        "best_method": "manual",
+        "error_rate": 0.0,
+        "quality": "A",
+        "neutral_radius": None,
+        "warning": None,
+        "step_path": display_name,
+        "display_name": display_name,
+        "source_type": "manual",
+        "quantity": part.get("quantity", 1),
+        "part_id": f"manual_{index}_{shape_type}",
+    }
+
+
 def _run_job(
     job_id: str,
     parts: list[dict],
+    manual_parts: list[dict],
     sheet_w: float,
     sheet_h: float,
     thickness: float,
@@ -64,11 +111,12 @@ def _run_job(
 
     pipeline = FlattenPipeline(samples_per_edge=50)
     results: list[dict] = []
+    total_parts = len(parts) + len(manual_parts)
     for i, part in enumerate(parts):
         stored_path = part["stored_path"]
         orig_filename = part["orig_filename"]
         quantity = part["quantity"]
-        progress_queue.put((job_id, f"処理中 ({i + 1}/{len(parts)}): {orig_filename}"))
+        progress_queue.put((job_id, f"処理中 ({i + 1}/{total_parts}): {orig_filename}"))
         part_output_dir = Path(output_dir) / f"{i}_{_safe_stem(orig_filename)}"
         try:
             result = pipeline.run(stored_path, part_output_dir)
@@ -81,11 +129,19 @@ def _run_job(
         result["part_id"] = f"{_safe_stem(orig_filename)}_{i}"
         results.append(result)
 
+    for i, part in enumerate(manual_parts):
+        result = _build_manual_result(part, i)
+        progress_queue.put((
+            job_id,
+            f"処理中 ({len(parts) + i + 1}/{total_parts}): {result['display_name']}",
+        ))
+        results.append(result)
+
     progress_queue.put((job_id, "ネスティング計算中"))
     nesting_parts = [
         {
             "id": r["part_id"],
-            "name": _safe_stem(r["step_path"]),
+            "name": r.get("display_name") or _safe_stem(r["step_path"]),
             "points": r.get("points", []),
             "holes": r.get("holes", []),
             "quantity": r.get("quantity", 1),
@@ -146,6 +202,7 @@ class JobManager:
         self,
         job_id: str,
         parts: list[dict],
+        manual_parts: list[dict],
         sheet_w: float,
         sheet_h: float,
         thickness: float,
@@ -155,8 +212,8 @@ class JobManager:
     ) -> None:
         db.update_job(job_id, status="running")
         future = self._executor.submit(
-            _run_job, job_id, parts, sheet_w, sheet_h, thickness, clearance, density, output_dir,
-            self._progress_queue,
+            _run_job, job_id, parts, manual_parts, sheet_w, sheet_h, thickness, clearance, density,
+            output_dir, self._progress_queue,
         )
         future.add_done_callback(lambda f: self._on_done(job_id, f))
 

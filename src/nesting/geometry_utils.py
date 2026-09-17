@@ -10,6 +10,26 @@ from shapely.validation import make_valid
 Point = tuple[float, float]
 
 
+def make_rectangle_polygon(width: float, height: float) -> list[Point]:
+    if width <= 0 or height <= 0:
+        raise ValueError("矩形の幅と高さは0より大きい値が必要です")
+    return [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)]
+
+
+def make_circle_polygon(radius: float, segments: int = 64) -> list[Point]:
+    if radius <= 0:
+        raise ValueError("円の半径は0より大きい値が必要です")
+    if segments < 3:
+        raise ValueError("円の分割数は3以上が必要です")
+    return [
+        (
+            radius + radius * math.cos(2.0 * math.pi * index / segments),
+            radius + radius * math.sin(2.0 * math.pi * index / segments),
+        )
+        for index in range(segments)
+    ]
+
+
 def shoelace_area(points: list[Point]) -> float:
     """靴紐公式による多角形面積（絶対値）を返す。"""
     n = len(points)

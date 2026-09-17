@@ -5,9 +5,13 @@ from __future__ import annotations
 import pytest
 
 from src.nesting.geometry_utils import (
+    bounds,
+    make_circle_polygon,
+    make_rectangle_polygon,
     net_area,
     normalize_to_origin,
     rotate_points,
+    shoelace_area,
     to_shapely,
     translate_points,
 )
@@ -15,6 +19,21 @@ from src.nesting.models import Part
 from src.nesting.nfp_engine import NestingEngine
 
 _EPS = 1e-6
+
+
+class TestPrimitivePolygons:
+    def test_rectangle_uses_requested_dimensions(self) -> None:
+        polygon = make_rectangle_polygon(120.0, 45.0)
+
+        assert bounds(polygon) == (0.0, 0.0, 120.0, 45.0)
+        assert shoelace_area(polygon) == pytest.approx(5400.0)
+
+    def test_circle_uses_requested_radius(self) -> None:
+        polygon = make_circle_polygon(25.0)
+
+        assert len(polygon) == 64
+        assert bounds(polygon) == pytest.approx((0.0, 0.0, 50.0, 50.0))
+        assert shoelace_area(polygon) == pytest.approx(3.141592653589793 * 25.0**2, rel=0.002)
 
 
 def _rect(w: float, h: float) -> list[tuple[float, float]]:

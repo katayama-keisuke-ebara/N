@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class LoginRequest(BaseModel):
@@ -16,8 +18,25 @@ class PartInput(BaseModel):
     quantity: int = Field(default=1, le=10000)
 
 
+class ManualShapeInput(BaseModel):
+    shape_type: Literal["rectangle", "circle"]
+    width: float | None = Field(default=None, gt=0, le=100000)
+    height: float | None = Field(default=None, gt=0, le=100000)
+    radius: float | None = Field(default=None, gt=0, le=50000)
+    quantity: int = Field(default=1, le=10000)
+
+    @model_validator(mode="after")
+    def validate_dimensions(self) -> "ManualShapeInput":
+        if self.shape_type == "rectangle" and (self.width is None or self.height is None):
+            raise ValueError("矩形には幅と高さが必要です")
+        if self.shape_type == "circle" and self.radius is None:
+            raise ValueError("円形には半径が必要です")
+        return self
+
+
 class CreateJobRequest(BaseModel):
     parts: list[PartInput]
+    manual_parts: list[ManualShapeInput] = Field(default_factory=list)
     sheet_w: float = Field(gt=0, le=100000)
     sheet_h: float = Field(gt=0, le=100000)
     thickness: float = Field(gt=0, le=1000)

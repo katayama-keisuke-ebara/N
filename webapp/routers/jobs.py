@@ -46,8 +46,8 @@ async def upload_parts(files: list[UploadFile], user: CurrentUser = Depends(get_
 def create_job(
     body: CreateJobRequest, request: Request, user: CurrentUser = Depends(get_current_user),
 ) -> dict:
-    if not body.parts:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "部品が指定されていません")
+    if not body.parts and not body.manual_parts:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "部品が指定されていません (STEP または手動形状)")
 
     resolved_parts = []
     for part in body.parts:
@@ -66,8 +66,8 @@ def create_job(
 
     output_dir = storage.job_output_dir(user.id, job_id)
     request.app.state.job_manager.submit(
-        job_id, resolved_parts, body.sheet_w, body.sheet_h, body.thickness, body.clearance,
-        body.density, str(output_dir),
+        job_id, resolved_parts, [part.model_dump() for part in body.manual_parts],
+        body.sheet_w, body.sheet_h, body.thickness, body.clearance, body.density, str(output_dir),
     )
     return {"job_id": job_id}
 
@@ -124,7 +124,10 @@ def download_dxf(
     results = json.loads(row["results_json"])
     if not (0 <= part < len(results)):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "不正な部品番号です")
-    dxf_path = Path(results[part]["dxf_path"])
+    raw_dxf_path = results[part].get("dxf_path")
+    if not raw_dxf_path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "手動形状の単品 DXF はありません")
+    dxf_path = Path(raw_dxf_path)
     if not dxf_path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "DXF ファイルが見つかりません")
     data = dxf_path.read_bytes()
