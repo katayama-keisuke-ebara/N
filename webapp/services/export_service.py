@@ -14,17 +14,26 @@ _SUMMARY_HEADERS = [
     "処理日時", "部品一覧", "分布案", "取り数合計", "歩留まり (%)",
     "残材面積 (mm²)", "穴面積合計 (mm²)", "定尺",
     "密度 (g/cm³)", "部材重量合計 (kg)", "端材重量 (kg)",
+    "部材重量 計算式", "端材重量 計算式",
 ]
 
 _PARTS_HEADERS = [
-    "部品名", "数量指定", "配置数", "部品面積 (3D, mm²)", "展開面積 (mm²)", "穴面積合計 (mm²)",
-    "重量 (kg)",
+    "部品名", "数量指定", "配置数", "部品面積 (mm²)", "部品体積 (mm³)", "穴面積合計 (mm²)",
+    "重量 (kg)", "重量 計算式",
 ]
 
 
 def _weight_kg(area_mm2: float, thickness_mm: float, density_g_cm3: float) -> float:
     """mm² × mm × g/cm³ を kg に換算する (mm³をcm³化してgを得てからkgへ)。"""
     return area_mm2 * thickness_mm * density_g_cm3 / 1_000_000.0
+
+
+def _weight_formula(area_mm2: float, thickness_mm: float, density_g_cm3: float, count: int | None = None) -> str:
+    """重量計算の根拠 (検算用) を人が読める式の文字列として返す。"""
+    count_part = f" × {count}個" if count is not None else ""
+    return (
+        f"= {area_mm2:.4f}mm²{count_part} × {thickness_mm}mm × {density_g_cm3}g/cm³ ÷ 1,000,000"
+    )
 
 
 def _scrap_area(candidate: dict) -> float:
@@ -86,11 +95,26 @@ class ExportService:
                 "kg",
             ),
             (
+                "部材重量合計 計算式",
+                _weight_formula(
+                    candidate.get("total_used_area", 0), params.get("thickness", 0),
+                    params.get("density", 0),
+                ),
+                "",
+            ),
+            (
                 "端材重量",
                 round(_weight_kg(
                     _scrap_area(candidate), params.get("thickness", 0), params.get("density", 0),
                 ), 4),
                 "kg",
+            ),
+            (
+                "端材重量 計算式",
+                _weight_formula(
+                    _scrap_area(candidate), params.get("thickness", 0), params.get("density", 0),
+                ),
+                "",
             ),
         ]
 
@@ -113,17 +137,18 @@ class ExportService:
             quantity = result.get("quantity", 1)
             quantity_label = "自動(最大)" if quantity <= 0 else quantity
             count = count_per_part.get(part_id, 0)
+            part_area = result.get("flattened_area", 0)
+            thickness = params.get("thickness", 0)
+            density = params.get("density", 0)
             parts_ws.append([
                 result.get("display_name") or Path(result["step_path"]).stem,
                 quantity_label,
                 count,
-                round(result.get("part_area", 0), 4),
-                round(result.get("flattened_area", 0), 4),
+                round(part_area, 4),
+                round(part_area * thickness, 4),
                 round(sum(_hole_area(h) for h in result.get("holes", [])), 4),
-                round(_weight_kg(
-                    result.get("flattened_area", 0) * count, params.get("thickness", 0),
-                    params.get("density", 0),
-                ), 4),
+                round(_weight_kg(part_area * count, thickness, density), 4),
+                _weight_formula(part_area, thickness, density, count=count),
             ])
         for col in parts_ws.columns:
             parts_ws.column_dimensions[col[0].column_letter].width = 22
@@ -148,6 +173,10 @@ class ExportService:
             r.get("display_name") or Path(r["step_path"]).stem for r in results
         )
         count_per_part = candidate.get("count_per_part", {})
+        thickness = params.get("thickness", 0)
+        density = params.get("density", 0)
+        total_used_area = candidate.get("total_used_area", 0)
+        scrap_area = _scrap_area(candidate)
         new_row = [
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             part_names,
@@ -157,14 +186,11 @@ class ExportService:
             round(candidate.get("remaining_area", 0), 4),
             round(candidate.get("total_hole_area", 0), 4),
             sheet_size,
-            params.get("density", 0),
-            round(_weight_kg(
-                candidate.get("total_used_area", 0), params.get("thickness", 0),
-                params.get("density", 0),
-            ), 4),
-            round(_weight_kg(
-                _scrap_area(candidate), params.get("thickness", 0), params.get("density", 0),
-            ), 4),
+            density,
+            round(_weight_kg(total_used_area, thickness, density), 4),
+            round(_weight_kg(scrap_area, thickness, density), 4),
+            _weight_formula(total_used_area, thickness, density),
+            _weight_formula(scrap_area, thickness, density),
         ]
 
         if summary_path.exists():

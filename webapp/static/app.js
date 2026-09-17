@@ -305,20 +305,26 @@ function renderCandidate() {
     const partId = r.part_id || `${r.step_path.replace(/\.[^/.]+$/, "")}_${i}`;
     const count = candidate.count_per_part[partId] || 0;
     const qtyLabel = r.quantity <= 0 ? "自動(最大)" : r.quantity;
-    const partWeightKg = r.flattened_area * count * thickness * density / 1e6;
+    const partArea = r.flattened_area;
+    const partVolume = partArea * thickness;
+    const partWeightKg = partArea * count * thickness * density / 1e6;
+    const weightFormula = `(= ${partArea.toFixed(2)}mm² × ${count}個 × ${thickness}mm × ${density}g/cm³ ÷ 1,000,000)`;
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${r.display_name || r.step_path}</td><td>${qtyLabel}</td><td>${count}</td>` +
       `<td>${r.width.toFixed(2)}</td><td>${r.height.toFixed(2)}</td>` +
-      `<td>${r.part_area.toFixed(2)}</td><td>${r.flattened_area.toFixed(2)}</td>` +
-      `<td>${partWeightKg.toFixed(3)}</td>`;
+      `<td>${partArea.toFixed(2)}</td><td>${partVolume.toFixed(2)}</td>` +
+      `<td>${partWeightKg.toFixed(3)} kg<small class="formula">${weightFormula}</small></td>`;
     tbody.appendChild(tr);
   });
 
   const scrapArea = Math.max(0, candidate.sheet_area - candidate.total_used_area - candidate.total_hole_area);
   const partsWeightKg = candidate.total_used_area * thickness * density / 1e6;
   const scrapWeightKg = scrapArea * thickness * density / 1e6;
-  document.getElementById("weight-summary").textContent =
-    `部材重量合計: ${partsWeightKg.toFixed(3)} kg　端材重量: ${scrapWeightKg.toFixed(3)} kg`;
+  const partsFormula = `(= ${candidate.total_used_area.toFixed(2)}mm² × ${thickness}mm × ${density}g/cm³ ÷ 1,000,000)`;
+  const scrapFormula = `(= ${scrapArea.toFixed(2)}mm² × ${thickness}mm × ${density}g/cm³ ÷ 1,000,000)`;
+  document.getElementById("weight-summary").innerHTML =
+    `部材重量合計: ${partsWeightKg.toFixed(3)} kg <small class="formula">${partsFormula}</small>　` +
+    `端材重量: ${scrapWeightKg.toFixed(3)} kg <small class="formula">${scrapFormula}</small>`;
 }
 
 async function onDownloadZip() {

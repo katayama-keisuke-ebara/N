@@ -19,6 +19,12 @@ header h1 {
   margin: 0;
 }
 
+.formula {
+  display: block;
+  color: #666;
+  font-size: 11px;
+}
+
 main {
   display: flex;
   gap: 16px;
