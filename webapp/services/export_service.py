@@ -38,7 +38,7 @@ def _weight_formula(area_mm2: float, thickness_mm: float, density_g_cm3: float, 
     """重量計算の根拠 (検算用) を人が読める式の文字列として返す。"""
     count_part = f" × {count}個" if count is not None else ""
     return (
-        f"= {area_mm2:.4f}mm²{count_part} × {thickness_mm}mm × {density_g_cm3}g/cm³ ÷ 1,000,000"
+        f"(= {area_mm2:.4f}mm²{count_part} × {thickness_mm}mm × {density_g_cm3}g/cm³ ÷ 1,000,000)"
     )
 
 
@@ -169,7 +169,7 @@ class ExportService:
         params: dict,
         output_dir: str | Path = "output",
     ) -> None:
-        """実行結果を summary.xlsx の Summary シートに 1 行追記する。"""
+        """Summary に追記し、部品内訳を最新の実行結果で更新する。"""
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         summary_path = output_dir / "summary.xlsx"
@@ -216,6 +216,50 @@ class ExportService:
                 ws.column_dimensions[get_column_letter(col_idx)].width = 22
 
         ws.append(new_row)
+        if "部品内訳" in wb.sheetnames:
+            del wb["部品内訳"]
+        detail_ws = wb.create_sheet("部品内訳")
+        for label, area in [("部材重量合計", total_used_area), ("端材重量", scrap_area)]:
+            weight = _weight_kg(area, thickness, density)
+            detail_ws.append([
+                label,
+                f"{weight:.3f}kg ({floor(weight * 1000 + 0.5)}g)",
+                _weight_formula(area, thickness, density),
+            ])
+        detail_ws.append([])
+        detail_ws.append([
+            "部品名", "数量指定", "配置数", "横(mm)", "縦(mm)",
+            "部品面積(mm²)", "部品体積(mm³)", "重量", "重量 計算式",
+        ])
+        for index, result in enumerate(results):
+            part_id = result.get("part_id") or f"{Path(result['step_path']).stem}_{index}"
+            quantity = result.get("quantity", 1)
+            count = count_per_part.get(part_id, 0)
+            area = result.get("flattened_area", 0)
+            weight = _weight_kg(area * count, thickness, density)
+            detail_ws.append([
+                result.get("display_name") or Path(result["step_path"]).stem,
+                "自動(最大)" if quantity <= 0 else quantity,
+                count,
+                result.get("width", 0),
+                result.get("height", 0),
+                area,
+                area * thickness,
+                f"{weight:.3f}kg ({floor(weight * 1000 + 0.5)}g)",
+                _weight_formula(area, thickness, density, count=count),
+            ])
+        for cell in detail_ws[4]:
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal="center")
+        for row in detail_ws.iter_rows(min_row=5, min_col=4, max_col=7):
+            for cell in row:
+                cell.number_format = "0.00"
+        for column, width in [("A", 40), ("B", 24), ("C", 18), ("D", 14), ("E", 14),
+                              ("F", 22), ("G", 22), ("H", 24), ("I", 85)]:
+            detail_ws.column_dimensions[column].width = width
+        for row_index in (1, 2):
+            detail_ws.merge_cells(start_row=row_index, start_column=3, end_row=row_index, end_column=9)
+        detail_ws.freeze_panes = "D5"
         wb.save(summary_path)
         logger.info("summary.xlsx に行を追記しました: %s", summary_path)
 

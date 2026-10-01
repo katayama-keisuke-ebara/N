@@ -9,13 +9,19 @@
 
 from __future__ import annotations
 
+import asyncio
+import io
 import json
+import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import openpyxl
 import pytest
+from fastapi import HTTPException
 
+from webapp.deps import CurrentUser
+from webapp.routers.jobs import download_summary, download_zip
 from webapp.services.config_service import ConfigService
 from webapp.services.export_service import ExportService
 from webapp.schemas import PartInput
@@ -125,6 +131,61 @@ def _make_params() -> dict:
 
 
 class TestExportServiceSummary:
+    def test_latest_breakdown_contents(self, tmp_path: Path) -> None:
+        results = [{
+            "step_path": "rectangle", "display_name": "矩形1_100x150mm",
+            "part_id": "rectangle", "quantity": 5, "width": 100.0,
+            "height": 150.0, "flattened_area": 15000.0,
+        }]
+        candidate = _make_candidate()
+        candidate.update(count_per_part={"rectangle": 5}, total_used_area=75000.0)
+        params = _make_params()
+        params.update(thickness=16.0, density=0.096)
+        ExportService().append_to_summary(results, candidate, params, tmp_path)
+
+        with zipfile.ZipFile(tmp_path / "summary.xlsx") as archive:
+            assert archive.testzip() is None
+        wb = openpyxl.load_workbook(tmp_path / "summary.xlsx")
+        ws = wb["部品内訳"]
+        assert ws["A1"].value == "部材重量合計"
+        assert ws["B1"].value == "0.115kg (115g)"
+        assert ws["A2"].value == "端材重量"
+        assert ws["B2"].value == "2.957kg (2957g)"
+        assert [cell.value for cell in ws[4]] == [
+            "部品名", "数量指定", "配置数", "横(mm)", "縦(mm)",
+            "部品面積(mm²)", "部品体積(mm³)", "重量", "重量 計算式",
+        ]
+        assert [cell.value for cell in ws[5]][:8] == [
+            "矩形1_100x150mm", 5, 5, 100, 150, 15000, 240000, "0.115kg (115g)",
+        ]
+        assert ws["I5"].value == "(= 15000.0000mm² × 5個 × 16.0mm × 0.096g/cm³ ÷ 1,000,000)"
+        assert ws["D5"].number_format == "0.00"
+        assert all(cell.data_type != "f" for sheet in wb for row in sheet for cell in row)
+        wb.close()
+
+    def test_breakdown_replaced_but_summary_appended(self, tmp_path: Path) -> None:
+        svc = ExportService()
+        svc.append_to_summary(_make_results() * 2, _make_candidate(), _make_params(), tmp_path)
+        results = _make_results()
+        results[0].update(display_name="latest", quantity=0)
+        svc.append_to_summary(results, _make_candidate(), _make_params(), tmp_path)
+        wb = openpyxl.load_workbook(tmp_path / "summary.xlsx")
+        assert wb["Summary"].max_row == 3
+        assert wb["部品内訳"].max_row == 5
+        assert wb["部品内訳"]["A5"].value == "latest"
+        assert wb["部品内訳"]["B5"].value == "自動(最大)"
+        assert wb["部品内訳"]["C5"].value == 6
+        wb.close()
+
+    def test_save_excel_formulas_are_text(self, tmp_path: Path) -> None:
+        dst = tmp_path / "out.xlsx"
+        ExportService().save_excel(_make_results(), _make_candidate(), _make_params(), str(dst))
+        wb = openpyxl.load_workbook(dst)
+        assert wb["Summary"]["B15"].value.startswith("(= ")
+        assert wb["Parts"]["H2"].value.startswith("(= ")
+        assert all(cell.data_type != "f" for sheet in wb for row in sheet for cell in row)
+        wb.close()
+
     def test_creates_summary_file(self, tmp_path: Path) -> None:
         ExportService().append_to_summary(
             _make_results(), _make_candidate(), _make_params(), tmp_path
@@ -221,6 +282,48 @@ class TestExportServiceSummary:
 # ──────────────────────────────────────────────
 # setup_logging
 # ──────────────────────────────────────────────
+
+class TestSummaryDownload:
+    async def _body(self, response) -> bytes:
+        return b"".join([chunk async for chunk in response.body_iterator])
+
+    def test_summary_and_zip_download_contents(self, tmp_path: Path, monkeypatch) -> None:
+        ExportService().append_to_summary(_make_results(), _make_candidate(), _make_params(), tmp_path)
+        monkeypatch.setattr("webapp.routers.jobs.db.get_job", lambda job_id: {"user_id": 1, "status": "done"})
+        monkeypatch.setattr("webapp.routers.jobs.storage.job_output_dir", lambda user_id, job_id: tmp_path)
+        user = CurrentUser(1, "tester")
+
+        response = download_summary("job", user)
+        data = asyncio.run(self._body(response))
+        assert response.media_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        assert 'filename="summary.xlsx"' in response.headers["content-disposition"]
+        assert data == (tmp_path / "summary.xlsx").read_bytes()
+        wb = openpyxl.load_workbook(io.BytesIO(data))
+        assert wb.sheetnames == ["Summary", "部品内訳"]
+        wb.close()
+        zip_response = download_zip("job", user)
+        with zipfile.ZipFile(io.BytesIO(asyncio.run(self._body(zip_response)))) as archive:
+            assert archive.testzip() is None
+            assert archive.read("summary.xlsx") == data
+
+    @pytest.mark.parametrize(("row", "expected_status"), [
+        (None, 404),
+        ({"user_id": 2, "status": "done"}, 404),
+        ({"user_id": 1, "status": "running"}, 409),
+    ])
+    def test_summary_rejects_unavailable_jobs(self, monkeypatch, row, expected_status) -> None:
+        monkeypatch.setattr("webapp.routers.jobs.db.get_job", lambda job_id: row)
+        with pytest.raises(HTTPException) as exc:
+            download_summary("job", CurrentUser(1, "tester"))
+        assert exc.value.status_code == expected_status
+
+    def test_summary_missing_file_returns_404(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr("webapp.routers.jobs.db.get_job", lambda job_id: {"user_id": 1, "status": "done"})
+        monkeypatch.setattr("webapp.routers.jobs.storage.job_output_dir", lambda user_id, job_id: tmp_path)
+        with pytest.raises(HTTPException) as exc:
+            download_summary("job", CurrentUser(1, "tester"))
+        assert exc.value.status_code == 404
+
 
 class TestLogging:
     def test_creates_log_file(self, tmp_path: Path) -> None:

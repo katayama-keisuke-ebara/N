@@ -51,6 +51,7 @@ async function init() {
   document.getElementById("run-btn").addEventListener("click", onRun);
   document.getElementById("logout-btn").addEventListener("click", onLogout);
   document.getElementById("download-zip-btn").addEventListener("click", onDownloadZip);
+  document.getElementById("download-summary-btn").addEventListener("click", onDownloadSummary);
 }
 
 function onFilesSelected(e) {
@@ -369,6 +370,10 @@ function renderCandidate() {
 
 async function onDownloadZip() {
   window.location.href = `api/jobs/${currentJobId}/download/zip`;
+}
+
+function onDownloadSummary() {
+  window.location.href = `api/jobs/${currentJobId}/download/summary`;
 }
 
 async function onLogout() {

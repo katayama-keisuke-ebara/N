@@ -155,3 +155,18 @@ def download_zip(job_id: str, user: CurrentUser = Depends(get_current_user)) -> 
         buf, media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="netsingtool_{job_id}.zip"'},
     )
+
+
+@router.get("/jobs/{job_id}/download/summary")
+def download_summary(job_id: str, user: CurrentUser = Depends(get_current_user)) -> StreamingResponse:
+    row = _get_owned_job(job_id, user.id)
+    if row["status"] != "done":
+        raise HTTPException(status.HTTP_409_CONFLICT, "ジョブは完了していません")
+    path = storage.job_output_dir(user.id, job_id) / "summary.xlsx"
+    if not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "summary.xlsx が見つかりません")
+    return StreamingResponse(
+        io.BytesIO(path.read_bytes()),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": _content_disposition("summary.xlsx")},
+    )
