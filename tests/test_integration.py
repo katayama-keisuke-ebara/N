@@ -186,6 +186,74 @@ class TestExportServiceSummary:
         assert all(cell.data_type != "f" for sheet in wb for row in sheet for cell in row)
         wb.close()
 
+    def test_layout_sheet_contains_nesting_image(self, tmp_path: Path) -> None:
+        from PIL import Image as PILImage
+        from xml.etree import ElementTree as ET
+
+        from src.export.nesting_render import render_nesting_png
+
+        params = _make_params()
+        png_bytes = render_nesting_png(_make_results(), _make_candidate(), params["sheet_w"], params["sheet_h"])
+        native_w, native_h = PILImage.open(io.BytesIO(png_bytes)).size
+
+        ExportService().append_to_summary(_make_results(), _make_candidate(), params, tmp_path)
+        summary_path = tmp_path / "summary.xlsx"
+        with zipfile.ZipFile(summary_path) as archive:
+            assert archive.testzip() is None
+            drawing_xml = archive.read("xl/drawings/drawing1.xml")
+        wb = openpyxl.load_workbook(summary_path)
+        ws = wb["配置図"]
+        assert "area_desc" in ws["A1"].value
+        assert len(ws._images) == 1
+        wb.close()
+
+        # openpyxl は再読込時に画像を元解像度で報告する既知の制限があるため、
+        # 実際に書き込まれた表示サイズ(EMU)を drawing XML から直接検証する。
+        ns = {"a": "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"}
+        ext = ET.fromstring(drawing_xml).find(".//a:ext", ns)
+        emu_per_px = 9525
+        assert int(ext.get("cx")) / emu_per_px == pytest.approx(native_w / 2, abs=1)
+        assert int(ext.get("cy")) / emu_per_px == pytest.approx(native_h / 2, abs=1)
+
+    def test_layout_sheet_replaced_on_second_append(self, tmp_path: Path) -> None:
+        svc = ExportService()
+        svc.append_to_summary(_make_results(), _make_candidate(), _make_params(), tmp_path)
+        second_candidate = _make_candidate()
+        second_candidate["strategy_name"] = "shelf_grid"
+        svc.append_to_summary(_make_results(), second_candidate, _make_params(), tmp_path)
+        wb = openpyxl.load_workbook(tmp_path / "summary.xlsx")
+        ws = wb["配置図"]
+        assert "shelf_grid" in ws["A1"].value
+        assert len(ws._images) == 1
+        wb.close()
+
+    def test_all_candidate_layouts_are_exported_and_replaced(self, tmp_path: Path) -> None:
+        first = _make_candidate()
+        second = {**first, "strategy_name": "shelf_grid", "yield_pct": 65.0}
+        svc = ExportService()
+        svc.append_to_summary(
+            _make_results(), first, _make_params(), tmp_path, candidates=[first, second],
+        )
+        path = tmp_path / "summary.xlsx"
+        with zipfile.ZipFile(path) as archive:
+            assert archive.testzip() is None
+            assert len([name for name in archive.namelist() if name.startswith("xl/media/")]) == 2
+        wb = openpyxl.load_workbook(path)
+        assert wb.sheetnames == ["Summary", "部品内訳", "配置図_案1", "配置図_案2"]
+        assert "area_desc" in wb["配置図_案1"]["A1"].value
+        assert "shelf_grid" in wb["配置図_案2"]["A1"].value
+        assert "65.0%" in wb["配置図_案2"]["A1"].value
+        assert all(len(wb[name]._images) == 1 for name in ("配置図_案1", "配置図_案2"))
+        wb.close()
+
+        svc.append_to_summary(_make_results(), second, _make_params(), tmp_path)
+        wb = openpyxl.load_workbook(path)
+        assert wb.sheetnames == ["Summary", "部品内訳", "配置図"]
+        assert "shelf_grid" in wb["配置図"]["A1"].value
+        assert len(wb["配置図"]._images) == 1
+        assert wb["Summary"].max_row == 3
+        wb.close()
+
     def test_creates_summary_file(self, tmp_path: Path) -> None:
         ExportService().append_to_summary(
             _make_results(), _make_candidate(), _make_params(), tmp_path
@@ -287,8 +355,14 @@ class TestSummaryDownload:
     async def _body(self, response) -> bytes:
         return b"".join([chunk async for chunk in response.body_iterator])
 
-    def test_summary_and_zip_download_contents(self, tmp_path: Path, monkeypatch) -> None:
-        ExportService().append_to_summary(_make_results(), _make_candidate(), _make_params(), tmp_path)
+    @pytest.mark.parametrize("candidate_count", [1, 2])
+    def test_summary_and_zip_download_contents(self, tmp_path: Path, monkeypatch, candidate_count: int) -> None:
+        candidates = [_make_candidate()]
+        if candidate_count == 2:
+            candidates.append({**_make_candidate(), "strategy_name": "shelf_grid"})
+        ExportService().append_to_summary(
+            _make_results(), candidates[0], _make_params(), tmp_path, candidates=candidates,
+        )
         monkeypatch.setattr("webapp.routers.jobs.db.get_job", lambda job_id: {"user_id": 1, "status": "done"})
         monkeypatch.setattr("webapp.routers.jobs.storage.job_output_dir", lambda user_id, job_id: tmp_path)
         user = CurrentUser(1, "tester")
@@ -299,7 +373,9 @@ class TestSummaryDownload:
         assert 'filename="summary.xlsx"' in response.headers["content-disposition"]
         assert data == (tmp_path / "summary.xlsx").read_bytes()
         wb = openpyxl.load_workbook(io.BytesIO(data))
-        assert wb.sheetnames == ["Summary", "部品内訳"]
+        layout_sheets = ["配置図"] if candidate_count == 1 else ["配置図_案1", "配置図_案2"]
+        assert wb.sheetnames == ["Summary", "部品内訳", *layout_sheets]
+        assert all(len(wb[name]._images) == 1 for name in layout_sheets)
         wb.close()
         zip_response = download_zip("job", user)
         with zipfile.ZipFile(io.BytesIO(asyncio.run(self._body(zip_response)))) as archive:

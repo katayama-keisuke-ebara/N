@@ -174,6 +174,7 @@ def _run_job(
                     "clearance": clearance, "density": density,
                 },
                 output_dir=output_dir,
+                candidates=candidates,
             )
         except Exception:
             logger.warning("summary.xlsx 追記失敗 (job=%s)", job_id, exc_info=True)

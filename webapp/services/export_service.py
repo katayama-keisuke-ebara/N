@@ -3,12 +3,16 @@ from __future__ import annotations
 import logging
 import shutil
 from datetime import UTC, datetime
+from io import BytesIO
 from math import floor
 from pathlib import Path
 
 import openpyxl
+from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
+
+from src.export.nesting_render import render_nesting_png
 
 logger = logging.getLogger(__name__)
 
@@ -168,8 +172,10 @@ class ExportService:
         candidate: dict,
         params: dict,
         output_dir: str | Path = "output",
+        *,
+        candidates: list[dict] | None = None,
     ) -> None:
-        """Summary に追記し、部品内訳を最新の実行結果で更新する。"""
+        """Summary に追記し、部品内訳と全案の配置図を更新する。"""
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         summary_path = output_dir / "summary.xlsx"
@@ -260,6 +266,30 @@ class ExportService:
         for row_index in (1, 2):
             detail_ws.merge_cells(start_row=row_index, start_column=3, end_row=row_index, end_column=9)
         detail_ws.freeze_panes = "D5"
+
+        for name in wb.sheetnames:
+            if name == "配置図" or (name.startswith("配置図_案") and name.removeprefix("配置図_案").isdigit()):
+                del wb[name]
+        layout_candidates = candidates or [candidate]
+        for index, layout_candidate in enumerate(layout_candidates, start=1):
+            title = f"配置図_案{index}" if len(layout_candidates) > 1 else "配置図"
+            layout_ws = wb.create_sheet(title)
+            layout_ws["A1"] = (
+                f"配置図 (案{index}: {layout_candidate.get('strategy_name', '')}, "
+                f"歩留まり {round(layout_candidate.get('yield_pct', 0), 1)}%)"
+            )
+            layout_ws["A1"].font = Font(bold=True)
+            try:
+                png_bytes = render_nesting_png(
+                    results, layout_candidate, params.get("sheet_w", 0), params.get("sheet_h", 0),
+                )
+                image = XLImage(BytesIO(png_bytes))
+                image.width = max(1, round(image.width / 2))
+                image.height = max(1, round(image.height / 2))
+                layout_ws.add_image(image, "A3")
+            except Exception:
+                logger.warning("配置図の画像埋め込みに失敗しました (案%s)", index, exc_info=True)
+
         wb.save(summary_path)
         logger.info("summary.xlsx に行を追記しました: %s", summary_path)
 

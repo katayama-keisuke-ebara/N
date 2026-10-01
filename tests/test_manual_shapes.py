@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import openpyxl
 import pytest
 from pydantic import ValidationError
 
@@ -96,6 +97,13 @@ def test_manual_only_job_generates_nesting_outputs(tmp_path) -> None:
     assert outcome["candidates"]
     assert list(tmp_path.glob("nesting_*.dxf"))
     assert (tmp_path / "summary.xlsx").is_file()
+    assert len(outcome["candidates"]) > 1
+    wb = openpyxl.load_workbook(tmp_path / "summary.xlsx")
+    for index, candidate in enumerate(outcome["candidates"], start=1):
+        ws = wb[f"配置図_案{index}"]
+        assert candidate["strategy_name"] in ws["A1"].value
+        assert len(ws._images) == 1
+    wb.close()
     assert progress_queue.messages[-1] == ("manual-job", "完了")
 
 
