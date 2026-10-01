@@ -74,10 +74,10 @@ function addManualShape(shapeType) {
   manualShapes.push({
     id: nextManualShapeId++,
     shape_type: shapeType,
-    width: "100",
-    height: "100",
+    width: "0",
+    height: "0",
     circle_unit: "diameter",
-    circle_value: "100",
+    circle_value: "0",
     quantity: "1",
   });
   renderPartsTable();
