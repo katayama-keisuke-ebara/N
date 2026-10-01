@@ -353,7 +353,7 @@ function renderCandidate() {
     tr.innerHTML = `<td>${r.display_name || r.step_path}</td><td>${qtyLabel}</td><td>${count}</td>` +
       `<td>${r.width.toFixed(2)}</td><td>${r.height.toFixed(2)}</td>` +
       `<td>${partArea.toFixed(2)}</td><td>${partVolume.toFixed(2)}</td>` +
-      `<td>${partWeightKg.toFixed(3)} kg<small class="formula">${weightFormula}</small></td>`;
+      `<td>${partWeightKg.toFixed(3)}kg (${Math.round(partWeightKg * 1000)}g)<small class="formula">${weightFormula}</small></td>`;
     tbody.appendChild(tr);
   });
 
@@ -363,8 +363,8 @@ function renderCandidate() {
   const partsFormula = `(= ${candidate.total_used_area.toFixed(2)}mm² × ${thickness}mm × ${density}g/cm³ ÷ 1,000,000)`;
   const scrapFormula = `(= ${scrapArea.toFixed(2)}mm² × ${thickness}mm × ${density}g/cm³ ÷ 1,000,000)`;
   document.getElementById("weight-summary").innerHTML =
-    `部材重量合計: ${partsWeightKg.toFixed(3)} kg <small class="formula">${partsFormula}</small>　` +
-    `端材重量: ${scrapWeightKg.toFixed(3)} kg <small class="formula">${scrapFormula}</small>`;
+    `部材重量合計: ${partsWeightKg.toFixed(3)}kg (${Math.round(partsWeightKg * 1000)}g) <small class="formula">${partsFormula}</small>　` +
+    `端材重量: ${scrapWeightKg.toFixed(3)}kg (${Math.round(scrapWeightKg * 1000)}g) <small class="formula">${scrapFormula}</small>`;
 }
 
 async function onDownloadZip() {

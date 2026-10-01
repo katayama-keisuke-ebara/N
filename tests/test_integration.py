@@ -186,6 +186,37 @@ class TestExportServiceSummary:
         wb = openpyxl.load_workbook(dst)
         assert "Summary" in wb.sheetnames
 
+    @pytest.mark.parametrize(("weight_kg", "expected"), [
+        (0.23, "0.23kg (230g)"),
+        (0.0597, "0.0597kg (60g)"),
+        (0.0005, "0.0005kg (1g)"),
+        (0.00049, "0.0005kg (0g)"),
+        (0.0, "0.0kg (0g)"),
+    ])
+    def test_save_excel_weight_units(
+        self, tmp_path: Path, weight_kg: float, expected: str,
+    ) -> None:
+        results = _make_results()
+        candidate = _make_candidate()
+        params = _make_params()
+        params["thickness"] = 1.0
+        results[0]["flattened_area"] = weight_kg * 1_000_000 / 2
+        candidate["count_per_part"] = {"part_0": 2}
+        candidate["total_used_area"] = weight_kg * 1_000_000
+        candidate["total_hole_area"] = 100.0
+        candidate["sheet_area"] = candidate["total_used_area"] * 2 + 100.0
+        dst = tmp_path / "weights.xlsx"
+
+        ExportService().save_excel(results, candidate, params, str(dst))
+
+        wb = openpyxl.load_workbook(dst)
+        summary = {row[0]: row[1:] for row in wb["Summary"].iter_rows(values_only=True)}
+        assert summary["部材重量合計"] == (expected, None)
+        assert summary["端材重量"] == (expected, None)
+        assert wb["Parts"].cell(row=1, column=7).value == "重量"
+        assert wb["Parts"].cell(row=2, column=7).value == expected
+        wb.close()
+
 
 # ──────────────────────────────────────────────
 # setup_logging

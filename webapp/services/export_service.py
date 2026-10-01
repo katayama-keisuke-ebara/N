@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import logging
 import shutil
-from datetime import datetime
+from datetime import UTC, datetime
+from math import floor
 from pathlib import Path
 
 import openpyxl
 from openpyxl.styles import Alignment, Font
+from openpyxl.utils import get_column_letter
 
 logger = logging.getLogger(__name__)
 
@@ -19,13 +21,17 @@ _SUMMARY_HEADERS = [
 
 _PARTS_HEADERS = [
     "部品名", "数量指定", "配置数", "部品面積 (mm²)", "部品体積 (mm³)", "穴面積合計 (mm²)",
-    "重量 (kg)", "重量 計算式",
+    "重量", "重量 計算式",
 ]
 
 
 def _weight_kg(area_mm2: float, thickness_mm: float, density_g_cm3: float) -> float:
     """mm² × mm × g/cm³ を kg に換算する (mm³をcm³化してgを得てからkgへ)。"""
     return area_mm2 * thickness_mm * density_g_cm3 / 1_000_000.0
+
+
+def _format_weight(weight_kg: float) -> str:
+    return f"{round(weight_kg, 4)}kg ({floor(weight_kg * 1000 + 0.5)}g)"
 
 
 def _weight_formula(area_mm2: float, thickness_mm: float, density_g_cm3: float, count: int | None = None) -> str:
@@ -62,7 +68,7 @@ class ExportService:
     ) -> None:
         """計算結果と加工パラメータを Excel ファイル (.xlsx) に書き出す。"""
         wb = openpyxl.Workbook()
-        ws = wb.active
+        ws = wb.active or wb.create_sheet()
         ws.title = "Summary"
 
         sheet_size = f"{params.get('sheet_w', 0):.0f}×{params.get('sheet_h', 0):.0f} mm"
@@ -74,7 +80,7 @@ class ExportService:
 
         rows: list[tuple] = [
             ("項目", "値", "単位"),
-            ("処理日時", datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""),
+            ("処理日時", datetime.now(tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S"), ""),
             ("部品数", len(results), "種類"),
             ("定尺", sheet_size, ""),
             ("分布案", candidate.get("strategy_name", ""), ""),
@@ -88,11 +94,11 @@ class ExportService:
             ("密度", params.get("density", 0), "g/cm³"),
             (
                 "部材重量合計",
-                round(_weight_kg(
+                _format_weight(_weight_kg(
                     candidate.get("total_used_area", 0), params.get("thickness", 0),
                     params.get("density", 0),
-                ), 4),
-                "kg",
+                )),
+                "",
             ),
             (
                 "部材重量合計 計算式",
@@ -104,10 +110,10 @@ class ExportService:
             ),
             (
                 "端材重量",
-                round(_weight_kg(
+                _format_weight(_weight_kg(
                     _scrap_area(candidate), params.get("thickness", 0), params.get("density", 0),
-                ), 4),
-                "kg",
+                )),
+                "",
             ),
             (
                 "端材重量 計算式",
@@ -124,8 +130,8 @@ class ExportService:
                 cell.alignment = left
                 if row_idx == 1:
                     cell.font = header_font
-        for col in ws.columns:
-            ws.column_dimensions[col[0].column_letter].width = 24
+        for col_idx in range(1, ws.max_column + 1):
+            ws.column_dimensions[get_column_letter(col_idx)].width = 24
 
         parts_ws = wb.create_sheet("Parts")
         for col_idx, header in enumerate(_PARTS_HEADERS, start=1):
@@ -147,11 +153,11 @@ class ExportService:
                 round(part_area, 4),
                 round(part_area * thickness, 4),
                 round(sum(_hole_area(h) for h in result.get("holes", [])), 4),
-                round(_weight_kg(part_area * count, thickness, density), 4),
+                _format_weight(_weight_kg(part_area * count, thickness, density)),
                 _weight_formula(part_area, thickness, density, count=count),
             ])
-        for col in parts_ws.columns:
-            parts_ws.column_dimensions[col[0].column_letter].width = 22
+        for col_idx in range(1, parts_ws.max_column + 1):
+            parts_ws.column_dimensions[get_column_letter(col_idx)].width = 22
 
         wb.save(dst_path)
         logger.info("Excel を保存しました: %s", dst_path)
@@ -178,7 +184,7 @@ class ExportService:
         total_used_area = candidate.get("total_used_area", 0)
         scrap_area = _scrap_area(candidate)
         new_row = [
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            datetime.now(tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S"),
             part_names,
             candidate.get("strategy_name", ""),
             sum(count_per_part.values()),
@@ -195,10 +201,10 @@ class ExportService:
 
         if summary_path.exists():
             wb = openpyxl.load_workbook(summary_path)
-            ws = wb["Summary"] if "Summary" in wb.sheetnames else wb.active
+            ws = wb["Summary"] if "Summary" in wb.sheetnames else (wb.active or wb.create_sheet())
         else:
             wb = openpyxl.Workbook()
-            ws = wb.active
+            ws = wb.active or wb.create_sheet()
             ws.title = "Summary"
             # ヘッダー行
             header_font = Font(bold=True)
@@ -206,8 +212,8 @@ class ExportService:
                 cell = ws.cell(row=1, column=col_idx, value=header)
                 cell.font = header_font
                 cell.alignment = Alignment(horizontal="center")
-            for col in ws.columns:
-                ws.column_dimensions[col[0].column_letter].width = 22
+            for col_idx in range(1, ws.max_column + 1):
+                ws.column_dimensions[get_column_letter(col_idx)].width = 22
 
         ws.append(new_row)
         wb.save(summary_path)
