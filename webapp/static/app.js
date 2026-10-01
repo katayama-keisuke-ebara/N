@@ -48,6 +48,11 @@ async function init() {
   document.getElementById("add-rectangle-btn").addEventListener("click", () => addManualShape("rectangle"));
   document.getElementById("add-circle-btn").addEventListener("click", () => addManualShape("circle"));
   document.getElementById("clear-all-btn").addEventListener("click", onClearAllParts);
+  document.getElementById("export-params-btn").addEventListener("click", onExportParams);
+  document.getElementById("import-params-btn").addEventListener("click", () => {
+    if (!document.getElementById("run-btn").disabled) document.getElementById("param-import-input").click();
+  });
+  document.getElementById("param-import-input").addEventListener("change", onParamFileSelected);
   document.getElementById("run-btn").addEventListener("click", onRun);
   document.getElementById("logout-btn").addEventListener("click", onLogout);
   document.getElementById("download-zip-btn").addEventListener("click", onDownloadZip);
@@ -55,9 +60,118 @@ async function init() {
 }
 
 function onFilesSelected(e) {
-  selectedFiles = Array.from(e.target.files);
-  selectedFileQuantities = selectedFiles.map(() => 1);
+  const files = Array.from(e.target.files);
+  if (files.length === 0) return;
+  if (selectedFiles.some((file) => file.pending)) {
+    const unmatched = [];
+    files.forEach((file) => {
+      const index = selectedFiles.findIndex((item) => item.pending && item.name === file.name);
+      if (index === -1) unmatched.push(file.name);
+      else selectedFiles[index] = file;
+    });
+    document.getElementById("error-text").textContent = unmatched.length
+      ? `Excel の再選択待ち部品と一致しないファイル: ${unmatched.join("、")}` : "";
+    e.target.value = "";
+  } else {
+    selectedFiles = files;
+    selectedFileQuantities = selectedFiles.map(() => 1);
+  }
   renderPartsTable();
+}
+
+const parameterKeys = ["sheet_w", "sheet_h", "thickness", "clearance", "density"];
+
+function readParameterValues() {
+  return Object.fromEntries(parameterKeys.map((key) => [key, Number(document.getElementById(key).value)]));
+}
+
+async function parameterError(response) {
+  const data = await response.json().catch(() => ({}));
+  if (typeof data.detail === "string") return data.detail;
+  if (Array.isArray(data.detail)) return data.detail.map((error) => `${error.loc.join(".")}: ${error.msg}`).join("\n");
+  return "パラメータの保存・読み込みに失敗しました";
+}
+
+function setParameterBusy(busy) {
+  document.querySelectorAll("#settings-panel input, #settings-panel button, #settings-panel select").forEach((element) => {
+    element.disabled = busy;
+  });
+  if (!busy) renderPartsTable();
+}
+
+async function onExportParams() {
+  if (document.getElementById("run-btn").disabled) return;
+  const errorText = document.getElementById("error-text");
+  errorText.textContent = "";
+  try {
+    const payload = {
+      ...readParameterValues(),
+      step_parts: selectedFiles.map((file, index) => ({filename: file.name, quantity: Number(selectedFileQuantities[index])})),
+      manual_parts: manualShapes.map((shape) => shape.shape_type === "rectangle" ? {
+        shape_type: shape.shape_type, width: Number(shape.width), height: Number(shape.height), quantity: Number(shape.quantity),
+      } : {
+        shape_type: shape.shape_type, circle_unit: shape.circle_unit, circle_value: Number(shape.circle_value), quantity: Number(shape.quantity),
+      }),
+    };
+    setParameterBusy(true);
+    const response = await apiFetch("api/config/export", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error(await parameterError(response));
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "netsingtool_params.xlsx";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    errorText.textContent = error.message;
+  } finally {
+    setParameterBusy(false);
+  }
+}
+
+async function onParamFileSelected(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (document.getElementById("run-btn").disabled) { e.target.value = ""; return; }
+  if (!window.confirm("現在の部品リスト・定尺パラメータを、Excel の内容で置き換えますか？")) {
+    e.target.value = "";
+    return;
+  }
+  const errorText = document.getElementById("error-text");
+  errorText.textContent = "";
+  let stepNames = [];
+  try {
+    setParameterBusy(true);
+    const body = new FormData();
+    body.append("file", file);
+    const response = await apiFetch("api/config/import", {method: "POST", body});
+    if (!response.ok) throw new Error(await parameterError(response));
+    const data = await response.json();
+    parameterKeys.forEach((key) => { document.getElementById(key).value = data[key]; });
+    selectedFiles = data.step_parts.map((part) => ({name: part.filename, pending: true}));
+    selectedFileQuantities = data.step_parts.map((part) => part.quantity);
+    document.getElementById("file-input").value = "";
+    manualShapes = data.manual_parts.map((part) => ({
+      id: nextManualShapeId++, shape_type: part.shape_type,
+      width: String(part.width ?? 0), height: String(part.height ?? 0),
+      circle_unit: part.circle_unit, circle_value: String(part.circle_value ?? 0), quantity: String(part.quantity),
+    }));
+    stepNames = data.step_parts.map((part) => part.filename);
+    document.getElementById("status-text").textContent = "パラメータを読み込みました";
+  } catch (error) {
+    errorText.textContent = error.message;
+  } finally {
+    e.target.value = "";
+    setParameterBusy(false);
+  }
+  if (stepNames.length) {
+    window.alert(`次の STEP ファイルを再アップロードするため、元のファイルを再選択してください。\n\n${stepNames.join("\n")}\n\n選択ダイアログが表示されない場合は、STEP ファイル欄から選択してください。`);
+    document.getElementById("file-input").click();
+  }
 }
 
 function createNumberInput(value, onInput, options = {}) {
@@ -105,7 +219,7 @@ function renderPartsTable() {
     const typeTd = document.createElement("td");
     typeTd.textContent = "STEP";
     const nameTd = document.createElement("td");
-    nameTd.textContent = file.name;
+    nameTd.textContent = file.pending ? `${file.name}（再選択待ち）` : file.name;
     const qtyTd = document.createElement("td");
     const qtyInput = createNumberInput(
       selectedFileQuantities[i],
@@ -212,6 +326,11 @@ async function onRun() {
   const errorText = document.getElementById("error-text");
   const statusText = document.getElementById("status-text");
   errorText.textContent = "";
+  if (selectedFiles.some((file) => file.pending)) {
+    errorText.textContent = "再選択待ちの STEP ファイルをすべて選択してから実行してください";
+    document.getElementById("file-input").click();
+    return;
+  }
   if (selectedFiles.length === 0 && manualShapes.length === 0) {
     errorText.textContent = "STEP ファイルまたは手動形状を追加してください";
     return;

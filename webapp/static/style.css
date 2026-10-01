@@ -85,6 +85,8 @@ input[type="text"], input[type="password"], input[type="number"] {
 .parts-toolbar {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .shape-fields {
