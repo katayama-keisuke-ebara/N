@@ -47,6 +47,7 @@ async function init() {
   document.getElementById("file-input").addEventListener("change", onFilesSelected);
   document.getElementById("add-rectangle-btn").addEventListener("click", () => addManualShape("rectangle"));
   document.getElementById("add-circle-btn").addEventListener("click", () => addManualShape("circle"));
+  document.getElementById("clear-all-btn").addEventListener("click", onClearAllParts);
   document.getElementById("run-btn").addEventListener("click", onRun);
   document.getElementById("logout-btn").addEventListener("click", onLogout);
   document.getElementById("download-zip-btn").addEventListener("click", onDownloadZip);
@@ -83,9 +84,21 @@ function addManualShape(shapeType) {
   renderPartsTable();
 }
 
+function onClearAllParts() {
+  if (selectedFiles.length === 0 && manualShapes.length === 0) return;
+  if (!window.confirm("すべての部品を削除しますか？")) return;
+
+  selectedFiles = [];
+  selectedFileQuantities = [];
+  manualShapes = [];
+  document.getElementById("file-input").value = "";
+  renderPartsTable();
+}
+
 function renderPartsTable() {
   const tbody = document.querySelector("#parts-table tbody");
   tbody.innerHTML = "";
+  document.getElementById("clear-all-btn").disabled = selectedFiles.length === 0 && manualShapes.length === 0;
   selectedFiles.forEach((file, i) => {
     const tr = document.createElement("tr");
     const typeTd = document.createElement("td");
@@ -100,7 +113,19 @@ function renderPartsTable() {
     );
     qtyTd.appendChild(qtyInput);
     const actionTd = document.createElement("td");
-    actionTd.textContent = "-";
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "icon-button danger";
+    removeButton.title = "このファイルを削除";
+    removeButton.setAttribute("aria-label", `${file.name}を削除`);
+    removeButton.textContent = "×";
+    removeButton.addEventListener("click", () => {
+      selectedFiles.splice(i, 1);
+      selectedFileQuantities.splice(i, 1);
+      document.getElementById("file-input").value = "";
+      renderPartsTable();
+    });
+    actionTd.appendChild(removeButton);
     tr.appendChild(typeTd);
     tr.appendChild(nameTd);
     tr.appendChild(qtyTd);

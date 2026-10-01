@@ -82,6 +82,11 @@ input[type="text"], input[type="password"], input[type="number"] {
   background: #52616b;
 }
 
+.parts-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .shape-fields {
   display: grid;
   grid-template-columns: auto minmax(80px, 1fr) auto minmax(80px, 1fr);
@@ -106,6 +111,14 @@ input[type="text"], input[type="password"], input[type="number"] {
 
 .icon-button.danger {
   background: #b42318;
+}
+
+button.danger {
+  background: #b42318;
+}
+
+button.danger:hover {
+  background: #8f1b13;
 }
 
 @media (max-width: 640px) {
